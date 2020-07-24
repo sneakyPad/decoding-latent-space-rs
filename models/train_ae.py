@@ -152,6 +152,13 @@ class AE(nn.Module):
         pred = self.forward(one_hot_movie_id)
         return pred
 
+def get_default_hyperparam():
+    return {
+        "batch_size": 512,
+        "epochs": 1,
+        "learning_rate": 1e-3,
+        "k": 10
+    }
 
 def generate_mnist_datasets():
 
@@ -341,19 +348,10 @@ def train(dct_hyperparam: dict, simplified_rating: bool, small_dataset: bool, lo
 
 
 #%%
-np_test_one = np.random.rand(1,2)
-np_test_one
-#%%
 
 
-dct_hyperparam = {
-"batch_size" : 512,
-"epochs" : 1,
-"learning_rate" : 1e-3,
-"k": 10
-}
 
 #Be careful to run with a large k -> needs too long for MAP metric
-train(dct_hyperparam, simplified_rating=False, small_dataset=True, load_csv=True, use_mnist=False, loss_user_items_only = True)
+train(get_default_hyperparam(), simplified_rating=False, small_dataset=True, load_csv=True, use_mnist=False, loss_user_items_only = True)
 #%%
 # plot_ae_img(batch_features,test_loader)
