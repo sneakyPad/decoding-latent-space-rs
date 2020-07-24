@@ -1,0 +1,8 @@
+from models import train_lightning_vae
+def main():
+    print("Hello World!")
+
+
+if __name__ == "__main__":
+    # execute only if run as a script
+    main()
