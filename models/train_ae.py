@@ -39,7 +39,7 @@ torch.manual_seed(seed)
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
 ##Shape: (n_user, n_items)
-unique_items = 0
+unique_movies = 0
 def create_user_item_matrix(df, simplified_rating: bool):
     # unique_movies = len(df["movieId"].unique())
     # global unique_items

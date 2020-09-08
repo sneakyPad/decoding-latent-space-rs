@@ -50,10 +50,10 @@ torch.manual_seed(seed)
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
 ##Shape: (n_user, n_items)
-unique_items = 0
+unique_movies = 0
 def create_user_item_matrix(df, simplified_rating: bool):
     # unique_movies = len(df["movieId"].unique())
-    global unique_items
+    global unique_movies
     unique_movies = df["movieId"].unique().max() + 1
     ls_users = df["userId"].unique()
     unique_users = len(df["userId"].unique()) +1
@@ -195,7 +195,7 @@ def train(dct_hyperparam: dict, simplified_rating: bool, small_dataset: bool):
         test_dataset, batch_size=32, shuffle=False, num_workers=1
     )
 
-    model = VAE(input_shape=unique_items).to(device)  # load it to the specified device, either gpu or cpu
+    model = VAE(input_shape=unique_movies).to(device)  # load it to the specified device, either gpu or cpu
     # optimizer = optim.Adam(model.parameters(), lr= dct_hyperparam['learning_rate']) # create an optimizer object -Adam optimizer with learning rate 1e-3
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()  # mean-squared error loss
@@ -213,7 +213,7 @@ def train(dct_hyperparam: dict, simplified_rating: bool, small_dataset: bool):
             ts_batch_user_features = ts_batch_user_features.to(device)
             optimizer.zero_grad()
             recon_batch, mu, logvar = model(ts_batch_user_features) #sample data
-            loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_items)
+            loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies)
             loss.backward()
             batch_loss = loss.item()
             loss = batch_loss / len(ts_batch_user_features)
@@ -309,7 +309,7 @@ def test():
         for i, data in enumerate(test_loader):
             data = data.to(device)
             recon_batch, mu, logvar = model(data)
-            test_loss += loss_function(recon_batch, data, mu, logvar, unique_items).item()
+            test_loss += loss_function(recon_batch, data, mu, logvar, unique_movies).item()
             # if i == 0:
             #     n = min(data.size(0), 8)
             #     comparison = torch.cat([data[:n],

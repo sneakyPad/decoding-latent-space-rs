@@ -10,7 +10,6 @@ import recmetrics
 from surprise import Reader, SVD, Dataset
 # from surprise.model_selection import train_test_split
 
-
 import argparse
 import torch
 import torch.utils.data
@@ -54,10 +53,10 @@ torch.manual_seed(seed)
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
 ##Shape: (n_user, n_items)
-unique_items = 0
+unique_movies = 0
 def create_user_item_matrix(df, simplified_rating: bool):
     # unique_movies = len(df["movieId"].unique())
-    global unique_items
+    global unique_movies
     unique_movies = df["movieId"].unique().max() + 1
     ls_users = df["userId"].unique()
     unique_users = len(df["userId"].unique()) +1
@@ -91,24 +90,6 @@ def create_user_item_matrix(df, simplified_rating: bool):
     return np_user_item_mx.astype(np.float32), unique_movies
 
 
-#%%
-parser = argparse.ArgumentParser(description='VAE MNIST Example')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
-                    help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                    help='number of epochs to train (default: 10)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
-                    help='enables CUDA training')
-parser.add_argument('--seed', type=int, default=1, metavar='S',
-                    help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=1, metavar='N',
-                    help='how many batches to wait before logging training status')
-args = parser.parse_args()
-
-
-torch.manual_seed(100)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
-
 class VAE(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
@@ -125,11 +106,13 @@ class VAE(pl.LightningModule):
 
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
-        self.fc1 = nn.Linear(in_features= self.unique_movies, out_features=400) #input
+        self.fc1 = nn.Linear(in_features=self.unique_movies, out_features=400) #input
         self.fc21 = nn.Linear(in_features=400, out_features=20) #encoder mean
         self.fc22 = nn.Linear(in_features=400, out_features=20) #encoder variance
         self.fc3 = nn.Linear(in_features=20, out_features=400)
-        self.fc4 = nn.Linear(in_features=400, out_features= self.unique_movies)
+        self.fc4 = nn.Linear(in_features=400, out_features=self.unique_movies)
+
+        # self.save_hyperparameters()
 
     def encode(self, x):
         h1 = F.relu(self.fc1(x))
@@ -173,7 +156,7 @@ class VAE(pl.LightningModule):
         return test_loader
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(model.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
         criterion = nn.MSELoss()  # mean-squared error loss
         # scheduler = StepLR(optimizer, step_size=1)
         return optimizer#, scheduler
@@ -184,10 +167,10 @@ class VAE(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         ts_batch_user_features = batch
         recon_batch, mu, logvar = self.forward(ts_batch_user_features)  # sample data
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_items)
+        batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies)
         loss = batch_loss/len(ts_batch_user_features)
         logs = {'loss': loss}
-        return {'loss':loss, 'log': logs}
+        return {'loss': loss, 'log': logs}
 
 
     # def validation_step(self, batch, batch_idx):
@@ -202,7 +185,7 @@ class VAE(pl.LightningModule):
         #     for i, data in enumerate(test_loader):
 
         recon_batch, mu, logvar = model(ts_batch_user_features)
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_items).item()
+        batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies).item()
         loss = batch_loss / len(ts_batch_user_features)
 
         return {'test_loss': batch_loss}
@@ -299,44 +282,85 @@ test_dataset = None
 #     test_loss /= len(test_loader.dataset)
 #     print('====> Test set loss: {:.4f}'.format(test_loss))
 
+#%%
+parser = argparse.ArgumentParser(description='VAE MNIST Example')
+parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+                    help='input batch size for training (default: 128)')
+parser.add_argument('--epochs', type=int, default=2, metavar='N',
+                    help='number of epochs to train (default: 10)')
+parser.add_argument('--max_epochs', type=int, default=2, metavar='N',
+                    help='number of max epochs to train (default: 15)')
+parser.add_argument('--no-cuda', action='store_true', default=False,
+                    help='enables CUDA training')
+parser.add_argument('--seed', type=int, default=1, metavar='S',
+                    help='random seed (default: 1)')
+# parser.add_argument('--log-interval', type=int, default=1, metavar='N',
+#                     help='how many batches to wait before logging training status')
+args = parser.parse_args()
+
+
+torch.manual_seed(100)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
+
 
 #%%
 
 from torch.utils.tensorboard import SummaryWriter
 
+from pytorch_lightning.logging.neptune import NeptuneLogger
+
 # default `log_dir` is "runs" - we'll be more specific here
 # writer = SummaryWriter('runs/vae_1')
-dct_hyperparam = {
-"batch_size" : 512,
-"epochs" : 20,
-"learning_rate" : 1e-3,
-"k": 500
-}
+# dct_hyperparam = {
+# "batch_size" : 512,
+# "epochs" : 20,
+# "learning_rate" : 1e-3,
+# "k": 500
+# }
 import recmetrics
 
+#%%
+model_params = {"simplified_rating": True,
+                "small_dataset": True,
+                "test_size": 0.33}
+# model_params.update(args.__dict__)
+# print(**model_params)
 
-from pytorch_lightning.logging.neptune import NeptuneLogger
+merged_params = (lambda first_dict, second_dict: {**first_dict, **second_dict})(args.__dict__, model_params)
+print(merged_params)
+
+
+#%%
+
 
 neptune_logger = NeptuneLogger(
     #api_key="key",
     project_name="paer/recommender-xai",
-    experiment_name="default",  # Optional,
-    params={"max_epochs": 1,
-            "batch_size": 32},  # Optional,
-    close_after_fit=False, #must be False if test method should be logged
+    experiment_name="default_2",  # Optional,
+    params = merged_params,
+    # params={"max_epochs": 1,
+    #         "batch_size": 32},  # Optional,
+    close_after_fit=True, #must be False if test method should be logged
     tags=["pytorch-lightning", "vae"]  # Optional,
 
 )
 
+trainer = pl.Trainer.from_argparse_args(args,
+                                        #max_epochs=1, automatically processed by Pytorch Light
+                                        logger=neptune_logger,
+                                        gpus=0,
+                                        #num_nodes=4
+)
 
-model = VAE(simplified_rating=True, small_dataset=True, test_size=0.33)
-trainer = pl.Trainer(max_epochs=1,
-                     logger=neptune_logger
 
-                     )
 
+
+#%%
+
+print("Running with the following configuration: \n{}".format(args))
+model = VAE(**model_params)
 trainer.fit(model)
-trainer.test(model)
+trainer.test(model) #The test loop will not be used until you call.
 
 #%%
 # plot_ae_img(batch_features,test_loader)
