@@ -96,7 +96,7 @@ class VAE(pl.LightningModule):
         self.train_dataset = None
         self.test_dataset = None
         self.test_size = kwargs["test_size"]
-        self.unique_movies =  0
+        self.unique_movies = 0
         self.np_user_item = None
         self.small_dataset = kwargs["small_dataset"]
         self.simplified_rating = kwargs["simplified_rating"]
@@ -294,8 +294,8 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-# parser.add_argument('--log-interval', type=int, default=1, metavar='N',
-#                     help='how many batches to wait before logging training status')
+parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                    help='how many batches to wait before logging training status')
 args = parser.parse_args()
 
 
@@ -336,7 +336,7 @@ print(merged_params)
 neptune_logger = NeptuneLogger(
     #api_key="key",
     project_name="paer/recommender-xai",
-    experiment_name="default_2",  # Optional,
+    experiment_name="neptune-logs",  # Optional,
     params = merged_params,
     # params={"max_epochs": 1,
     #         "batch_size": 32},  # Optional,
