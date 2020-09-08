@@ -29,9 +29,9 @@ def fetch_example():
        print(person.personID, person['name'])
 
 
-#clean actors:
-# start_time = time.time()
 def beautify_names(dct_data, key):
+    # clean actors:
+    # start_time = time.time()
     ls_names = []
 
     try:
@@ -41,26 +41,26 @@ def beautify_names(dct_data, key):
     except KeyError:
         print('No entries for key: {}'.format(key))
 
+    # print("--- %s seconds ---" % (time.time() - start_time))
+    # total_time_one +=time.time() - start_time
     return ls_names
 
- # print("--- %s seconds ---" % (time.time() - start_time))
-        # total_time_one +=time.time() - start_time
+
+
 def remove_keys(dict, keys):
     if(keys == None):
         keys = ['certificates', 'cover url', 'thanks',
                       'special effects companies', 'transportation department',
-                      'make up department', 'special effects', 'stunts', 'costume department',
+                      'make up department', 'special effects', 'stunts', 'costume departmen',
                       'location management', 'editorial department', 'casting directors', 'art directors',
                       'production managers', 'art department', 'sound department',
-                      'visual effects', 'camera department',
+                      'visual effects', 'camera department', 'costume designers'
                       'casting department', 'miscellaneous', 'akas', 'production companies', 'distributors',
                       'other companies', 'synopsis', 'cinematographers', 'production designers',
-                      'custom designers']
+                      'custom designers', 'Opening Weekend United Kingdom', 'Opening Weekend United States']
     for key in keys:
         dict.pop(key, None)
     return dict
-
-
 
 def fetch_by_imdb_ids(ls_ids):
     imdb = IMDb()
@@ -69,14 +69,9 @@ def fetch_by_imdb_ids(ls_ids):
 
         movie = imdb.get_movie(id)
 
-        # Optional: select metadata
+        # TODO Optional: select metadata
 
-        # store metadata as entry and a flatted list
         dct_data = movie.data
-        dct_data = remove_keys(dct_data, None)
-
-
-
 
         # to be cleaned:
         keys_to_beautify = ['cast','directors', 'writers', 'producers', 'composers', 'editors',
@@ -85,25 +80,15 @@ def fetch_by_imdb_ids(ls_ids):
         for key in keys_to_beautify:
             dct_data[key] = beautify_names(dct_data, key)
 
-
-
-
-        # casts = dct_data['cast']
-        # for i in range(0, len(casts)):
-        #     ls_casts.append(casts[i].__str__())
-        # dct_data['cast'] = ls_casts
-
-
-
         #unwrap box office:
         try:
             dct_data.update(dct_data['box office'])
             del dct_data['box office']
-            ls_metadata.append(dct_data)
         except KeyError:
             print('key error for movieId:{} with title:{} '.format(movie.movieID, dct_data['title']))
 
-
+        dct_data = remove_keys(dct_data, None)
+        ls_metadata.append(dct_data)
 
     return ls_metadata
 
@@ -119,9 +104,18 @@ def load_dataset(small_dataset):
     return df_movies
 
 if __name__ == '__main__':
-    df_movies = load_dataset(small_dataset=True)
+    small_dataset = True
+    df_movies = load_dataset(small_dataset=small_dataset)
     ls_imdb_ids = list(df_movies['imdbId'])
+    print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
     metadata = fetch_by_imdb_ids(ls_imdb_ids[:20])
     df_meta = pd.DataFrame(metadata)
-    print('fo')
+
+    #Save dataframe
+    if(small_dataset):
+        df_meta.to_csv("../data/openlens/small/df_movies.csv")
+    else:
+        df_meta.to_csv("../data/openlens/large/df_movies.csv")
+
+    print('Fetching Metadata done.')
     # add metadata to df
