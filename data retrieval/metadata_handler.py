@@ -93,6 +93,12 @@ def fetch_by_imdb_ids(ls_ids):
             print('key error for movieId:{} '.format(movie.movieID))# dct_data['title']
 
         dct_data = remove_keys(dct_data, None)
+
+        #Fetch stars of the movie with bs4
+        ls_stars = fetch_stars(id)
+        dct_data['stars'] =ls_stars
+
+        #add dict to the list of all metadata
         ls_metadata.append(dct_data)
 
     return ls_metadata
@@ -156,7 +162,7 @@ def fetch_stars(id):
         'Access-Control-Max-Age': '3600',
         'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0'
     }
-    url = "https://www.imdb.com/title/tt0133093/?ref_=rvi_tt"
+    url = "https://www.imdb.com/title/tt0{}/?ref_=rvi_tt".format(id)
     req = requests.get(url, headers)
     soup = BeautifulSoup(req.content, 'html.parser')
     fo = soup.find("h4", text='Stars:')
@@ -166,13 +172,14 @@ def fetch_stars(id):
     while (next_a_tag.name != 'span'):
 
         if (next_a_tag.name == 'a'):
-            ls_stars.append(next_a_tag.contents[0])
+            ls_stars.append(str(next_a_tag.contents[0]))#str() casts from NavigabelString to string
         next_a_tag = next_a_tag.next_sibling
         # class 'bs4.element.Tag'>
     # next_a_tag.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling['class'][0] == 'ghost'
     print(ls_stars)
     # fo = soup.find('inline').get_text()
     print(fo)
+    return ls_stars
 
 if __name__ == '__main__':
 
@@ -180,21 +187,22 @@ if __name__ == '__main__':
 
 
     # fetch_example()
-    # #Load Dataset
-    # small_dataset = True
-    # df_movies = load_dataset(small_dataset=small_dataset)
-    #
-    # #Enhance existing dataset by fetching metadata
-    # ls_imdb_ids = list(df_movies['imdbId'])
-    # print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
-    # metadata = fetch_by_imdb_ids(ls_imdb_ids[:1])
-    # df_meta = pd.DataFrame(metadata)
-    #
-    # #Save dataframe
-    # if(small_dataset):
-    #     df_meta.to_csv("../data/openlens/small/df_movies.csv")
-    # else:
-    #     df_meta.to_csv("../data/openlens/large/df_movies.csv")
-    #
-    # print('Fetching Metadata done.')
-    # ls_strings_2_ids()
+    #Load Dataset
+    small_dataset = True
+    df_movies = load_dataset(small_dataset=small_dataset)
+
+    #Enhance existing dataset by fetching metadata
+    ls_imdb_ids = list(df_movies['imdbId'])
+    print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
+    metadata = fetch_by_imdb_ids(ls_imdb_ids[:1])
+    df_meta = pd.DataFrame(metadata)
+
+
+    #Save dataframe
+    if(small_dataset):
+        df_meta.to_csv("../data/openlens/small/df_movies.csv")
+    else:
+        df_meta.to_csv("../data/openlens/large/df_movies.csv")
+
+    print('Fetching Metadata done.')
+    ls_strings_2_ids()
