@@ -139,12 +139,12 @@ def load_dataset(small_dataset):
     return df_movies
 
 
-def ls_strings_2_ids(ls_strings: str = 'fo'):
+def names_2_ids(df):
     # %%
     import pandas as pd
-    import tqdm
 
-    df_movies = pd.read_csv("../data/openlens/small/df_movies.csv")
+    # df_movies = pd.read_csv("../data/openlens/small/df_movies.csv")
+    df_movies = df
     df_sub_cast = df_movies[:1]['cast']
 
     # {print(element) for element in df_sub_cast}
@@ -152,17 +152,22 @@ def ls_strings_2_ids(ls_strings: str = 'fo'):
     # print(df_movies[0]['cast'].unique())
 
     id2actor = {}
-    actor2id = defaultdict(int)
+    actor2id = defaultdict(lambda: 1+len(actor2id))
     ls_casts = df_movies['cast'].values
     # [ls_casts[0].append(ls) for ls in ls_casts]
     str_test =""
-    ls_exp = []
+    ls_names = []
 
+    #Add all actors to one single list
+    print('Collect names:')
+    for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
+        ls_names.extend(ast.literal_eval(row['cast'])) #literal_eval casts the list which is encoded as a string to a list
+        ls_names.extend(ast.literal_eval(row['stars']))
+        # ls_names.extend(ast.literal_eval(row['X']))
 
+    # for idx, row in tqdm(df_movies.iterrows(), total = df_movies.shape[0]):
+    #     ls_exp.extend(ast.literal_eval(row['stars']))
 
-
-    for idx, row in tqdm(df_movies.iterrows(), total = df_movies.shape[0]):
-        ls_exp.extend(ast.literal_eval(row['stars']))
     # fpp = ','.join(df_movies['cast'].replace("[",''))
 
     # for ls_elem in df_sub_cast:
@@ -171,14 +176,35 @@ def ls_strings_2_ids(ls_strings: str = 'fo'):
     # ls_elem = ast.literal_eval(casts)
     # ls_elem = ls_elem.replace("[",'').replace("'",'').split(sep=',')
     from collections import Counter
-    c = Counter(ls_exp)
+    c = Counter(ls_names)
     dct_bar = dict(c)
-    for elem in list(ls_exp):
-        actor2id[elem] = actor2id[elem] + 1
-        if (actor2id[elem] == 0):
-            actor2id[elem] = len(actor2id)
+    for elem in list(ls_names):
+        actor2id[elem] #Smart because, lambda has everytime a new element was added a new default value
+
+        # actor2id[elem] = actor2id[elem] + 1 #count the occurence of an actor
+        # if (actor2id[elem] == 0): #assign an unique id to an actor/name
+        #     actor2id[elem] = len(actor2id)
 
     print(actor2id)
+    id2actor = {value: key for key, value in actor2id.items()}
+    print(id2actor[2])
+
+    print("Assign Ids to names:")
+    ls_cast_ids=[]
+    ls_stars_ids=[]
+    for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
+        casts = ast.literal_eval(row['cast']) #literal_eval casts the list which is encoded as a string to a list
+        stars = ast.literal_eval(row['stars'])
+        ls_cast_ids.append([actor2id[name] for name in casts])
+        ls_stars_ids.append([actor2id[name] for name in stars])
+    df_movies['cast_id'] = ls_cast_ids
+    df_movies['stars_id'] = ls_stars_ids
+
+    print('fo')
+    return df_movies
+
+        # ls_names.extend(ast.literal_eval(row['stars']))
+
 
 def fetch_stars(id):
 
@@ -286,19 +312,22 @@ if __name__ == '__main__':
     small_dataset = True
     multi_processing = True
     metadata = None
+    crawl = True
     df_movies = load_dataset(small_dataset=small_dataset)
 
-    #Enhance existing dataset by fetching metadata
-    ls_imdb_ids = list(df_movies['imdbId'])
-    df_meta = crawl_metadata(ls_imdb_ids, multiprocessing=multiprocessing, test=False)
+    if(crawl):
+        #Enhance existing dataset by fetching metadata
+        ls_imdb_ids = list(df_movies['imdbId'])
+        df_meta = crawl_metadata(ls_imdb_ids, multiprocessing=multiprocessing, test=True)
+        print('Fetching Metadata done.')
 
-    #Save dataframe
-    if(small_dataset):
+    # enhance_by_stars(df_meta)
+
+    #transform names to ids
+    df_meta = names_2_ids(df=df_meta)
+
+    # Save dataframe
+    if (small_dataset):
         df_meta.to_csv("../data/openlens/small/df_movies.csv")
     else:
         df_meta.to_csv("../data/openlens/large/df_movies.csv")
-    # enhance_by_stars(df_meta)
-
-
-    print('Fetching Metadata done.')
-    # ls_strings_2_ids()
