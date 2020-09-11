@@ -8,8 +8,14 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 import ast
 from collections import defaultdict
+import multiprocessing
 dct_no_entries = defaultdict(int)
+import numpy as np
+import itertools
+import os
 
+# manager = multiprocessing.Manager()
+# shared_list = manager.list()
 def fetch_example():
     # create an instance of the IMDb class
     ia = IMDb()
@@ -39,7 +45,9 @@ def fetch_example():
 
 def beautify_names(dct_data, key):
     # clean actors:
+
     # start_time = time.time()
+
     ls_names = []
 
 
@@ -115,10 +123,8 @@ def fetch_by_imdb_ids(ls_ids):
         #add dict to the list of all metadata
         ls_metadata.append(dct_data)
 
-    print('No-Keys-Exception for the following keys:')
-    for key, value in dct_no_entries.items():
-        print("Key: {}, count:{}, relative: {}".format(key, value, value/len(ls_ids)))
-    return ls_metadata
+
+    return ls_metadata, dct_no_entries
 
 
 def load_dataset(small_dataset):
@@ -173,9 +179,9 @@ def ls_strings_2_ids(ls_strings: str = 'fo'):
             actor2id[elem] = len(actor2id)
 
     print(actor2id)
-    print('f')
+
 def fetch_stars(id):
-    #TODO id
+
     headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET',
@@ -193,15 +199,12 @@ def fetch_stars(id):
         div_tag = h4_stars.parent
         next_a_tag = div_tag.findNext('a')
         while (next_a_tag.name != 'span'):
-
             if (next_a_tag.name == 'a'):
                 ls_stars.append(str(next_a_tag.contents[0]))#str() casts from NavigabelString to string
             next_a_tag = next_a_tag.next_sibling
             # class 'bs4.element.Tag'>
         # next_a_tag.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling['class'][0] == 'ghost'
-        print(ls_stars)
-        # fo = soup.find('inline').get_text()
-        # print(h4_stars)
+        # print(ls_stars)
     except AttributeError:
         print('AttributeError, movieId:{}'.format(id))
     finally:
@@ -213,23 +216,76 @@ def enhance_by_stars(df):
     df['stars'] = df['movieID'].apply(lambda id: fetch_stars(id))
     return df
 
+def print_exception_statistic(dct_no_entries):
+    print('Joined No-Keys-Exception for the following keys:')
+    for key, value in dct_no_entries.items():
+        print("Key: {}, count:{}, relative: {}".format(key, value, value / len(ls_imdb_ids)))
+
+
+def worker(ids):
+    # global shared_list https://stackoverflow.com/questions/40630428/share-a-list-between-different-processes-in-python
+    metadata, dct_no_entries = fetch_by_imdb_ids(ids)
+    # shared_list.extend(metadata)
+    print('worker done')
+    return metadata, dct_no_entries
+
 
 if __name__ == '__main__':
-
-
     # df_meta = None
 
     # fetch_example()
     #Load Dataset
     small_dataset = True
+    multi_processing = True
+    metadata = None
     df_movies = load_dataset(small_dataset=small_dataset)
 
     #Enhance existing dataset by fetching metadata
     ls_imdb_ids = list(df_movies['imdbId'])
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
-    metadata = fetch_by_imdb_ids(ls_imdb_ids)
-    df_meta = pd.DataFrame(metadata)
+    ls_imdb_ids = ls_imdb_ids[:50]
 
+
+    if(multi_processing):
+            start_time = time.time() #measure time
+
+            no_processes = 16
+            ls_ls_metadata = []
+            ls_dct_exceptions = []
+
+            len_dataset = len(ls_imdb_ids)
+            ls_splitted = np.array_split(np.array(ls_imdb_ids), no_processes)
+
+            pool = multiprocessing.Pool(processes=no_processes)
+            # m = multiprocessing.Manager()
+            # q = m.Queue()
+
+            #Pool.map returns list of pairs: https://stackoverflow.com/questions/39303117/valueerror-too-many-values-to-unpack-multiprocessing-pool
+            for ls_metadata, dct_no_entries in pool.map(worker, ls_splitted): #ls_ls_metadata=pool.map(worker, ls_splitted):
+                #append both objects to a separate list
+                ls_ls_metadata.append(ls_metadata)
+                ls_dct_exceptions.append(dct_no_entries)
+            print("--- %s seconds ---" % (time.time() - start_time))
+
+            merged_res = itertools.chain(*ls_ls_metadata) #unpack the list to merge n lists
+            ls_metadata = list(merged_res)
+
+            df_exceptions = pd.DataFrame(ls_dct_exceptions).sum() #sum over all rows
+
+            print_exception_statistic(df_exceptions.to_dict())
+            print("--- %s seconds ---" % (time.time() - start_time))
+
+
+    else:
+        start_time = time.time()
+
+        ls_metadata, dct_no_entries = fetch_by_imdb_ids(ls_imdb_ids)
+        print_exception_statistic(dct_no_entries)
+
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+    df_meta = pd.DataFrame(ls_metadata)
+    print('Shape of crawled dataset:{}'.format(df_meta.shape[0]))
 
     #Save dataframe
     if(small_dataset):
