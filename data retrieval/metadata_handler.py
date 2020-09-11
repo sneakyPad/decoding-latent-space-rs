@@ -5,7 +5,10 @@ import pandas as pd
 import time
 import requests
 from bs4 import BeautifulSoup
-
+from tqdm import tqdm
+import ast
+from collections import defaultdict
+dct_no_entries = defaultdict(int)
 
 def fetch_example():
     # create an instance of the IMDb class
@@ -39,12 +42,15 @@ def beautify_names(dct_data, key):
     # start_time = time.time()
     ls_names = []
 
+
+
     try:
         for actor in dct_data[key]:
             if(bool(actor)):
                 ls_names.append(actor['name'])
     except KeyError:
-        print('No entries for key: {}'.format(key))
+        dct_no_entries[key]+=1
+        # print()No entries for key:
 
     # print("--- %s seconds ---" % (time.time() - start_time))
     # total_time_one +=time.time() - start_time
@@ -70,7 +76,15 @@ def remove_keys(dict, keys):
 def fetch_by_imdb_ids(ls_ids):
     imdb = IMDb()
     ls_metadata =[]
-    for id in ls_ids:     # loop through ls_ids
+
+    # import sys
+    # import pyprind
+    # bar = pyprind.ProgBar(df_movies.shape[0], stream=sys.stdout)
+    # for i in range(n):
+    #     time.sleep(0.1)  # do some computation
+    #     bar.update()
+
+    for id in tqdm(ls_ids, total = len(ls_ids)):     # loop through ls_ids
 
         movie = imdb.get_movie(id)
 
@@ -90,7 +104,7 @@ def fetch_by_imdb_ids(ls_ids):
             dct_data.update(dct_data['box office'])
             del dct_data['box office']
         except KeyError:
-            print('key error for movieId:{} '.format(movie.movieID))# dct_data['title']
+            print('Unwrap: key error for movieId:{} '.format(movie.movieID))# dct_data['title']
 
         dct_data = remove_keys(dct_data, None)
 
@@ -101,6 +115,9 @@ def fetch_by_imdb_ids(ls_ids):
         #add dict to the list of all metadata
         ls_metadata.append(dct_data)
 
+    print('No-Keys-Exception for the following keys:')
+    for key, value in dct_no_entries.items():
+        print("Key: {}, count:{}, relative: {}".format(key, value, value/len(ls_ids)))
     return ls_metadata
 
 
@@ -119,6 +136,7 @@ def load_dataset(small_dataset):
 def ls_strings_2_ids(ls_strings: str = 'fo'):
     # %%
     import pandas as pd
+    import tqdm
 
     df_movies = pd.read_csv("../data/openlens/small/df_movies.csv")
     df_sub_cast = df_movies[:1]['cast']
@@ -126,16 +144,19 @@ def ls_strings_2_ids(ls_strings: str = 'fo'):
     # {print(element) for element in df_sub_cast}
     # print(pd.get_dummies(df_movies[:1]['cast']))
     # print(df_movies[0]['cast'].unique())
-    import ast
-    from collections import defaultdict
+
     id2actor = {}
     actor2id = defaultdict(int)
     ls_casts = df_movies['cast'].values
     # [ls_casts[0].append(ls) for ls in ls_casts]
     str_test =""
     ls_exp = []
-    for idx, row in df_movies.iterrows():
-        ls_exp.extend(ast.literal_eval(row['cast']))
+
+
+
+
+    for idx, row in tqdm(df_movies.iterrows(), total = df_movies.shape[0]):
+        ls_exp.extend(ast.literal_eval(row['stars']))
     # fpp = ','.join(df_movies['cast'].replace("[",''))
 
     # for ls_elem in df_sub_cast:
@@ -162,29 +183,41 @@ def fetch_stars(id):
         'Access-Control-Max-Age': '3600',
         'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0'
     }
-    url = "https://www.imdb.com/title/tt0{}/?ref_=rvi_tt".format(id)
-    req = requests.get(url, headers)
-    soup = BeautifulSoup(req.content, 'html.parser')
-    fo = soup.find("h4", text='Stars:')
-    div_tag = fo.parent
-    next_a_tag = div_tag.findNext('a')
     ls_stars = []
-    while (next_a_tag.name != 'span'):
 
-        if (next_a_tag.name == 'a'):
-            ls_stars.append(str(next_a_tag.contents[0]))#str() casts from NavigabelString to string
-        next_a_tag = next_a_tag.next_sibling
-        # class 'bs4.element.Tag'>
-    # next_a_tag.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling['class'][0] == 'ghost'
-    print(ls_stars)
-    # fo = soup.find('inline').get_text()
-    print(fo)
-    return ls_stars
+    try:
+        url = "https://www.imdb.com/title/tt0{}/?ref_=rvi_tt".format(id)
+        req = requests.get(url, headers)
+        soup = BeautifulSoup(req.content, 'html.parser')
+        h4_stars = soup.find("h4", text='Stars:')
+        div_tag = h4_stars.parent
+        next_a_tag = div_tag.findNext('a')
+        while (next_a_tag.name != 'span'):
+
+            if (next_a_tag.name == 'a'):
+                ls_stars.append(str(next_a_tag.contents[0]))#str() casts from NavigabelString to string
+            next_a_tag = next_a_tag.next_sibling
+            # class 'bs4.element.Tag'>
+        # next_a_tag.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling['class'][0] == 'ghost'
+        print(ls_stars)
+        # fo = soup.find('inline').get_text()
+        # print(h4_stars)
+    except AttributeError:
+        print('AttributeError, movieId:{}'.format(id))
+    finally:
+        return ls_stars
+
+def enhance_by_stars(df):
+    # TODO This is not done yet
+    tqdm.pandas(desc="my bar!")
+    df['stars'] = df['movieID'].apply(lambda id: fetch_stars(id))
+    return df
+
 
 if __name__ == '__main__':
 
 
-
+    # df_meta = None
 
     # fetch_example()
     #Load Dataset
@@ -194,7 +227,7 @@ if __name__ == '__main__':
     #Enhance existing dataset by fetching metadata
     ls_imdb_ids = list(df_movies['imdbId'])
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
-    metadata = fetch_by_imdb_ids(ls_imdb_ids[:1])
+    metadata = fetch_by_imdb_ids(ls_imdb_ids)
     df_meta = pd.DataFrame(metadata)
 
 
@@ -203,6 +236,8 @@ if __name__ == '__main__':
         df_meta.to_csv("../data/openlens/small/df_movies.csv")
     else:
         df_meta.to_csv("../data/openlens/large/df_movies.csv")
+    # enhance_by_stars(df_meta)
+
 
     print('Fetching Metadata done.')
-    ls_strings_2_ids()
+    # ls_strings_2_ids()
