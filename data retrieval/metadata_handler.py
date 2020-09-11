@@ -229,6 +229,54 @@ def worker(ids):
     print('worker done')
     return metadata, dct_no_entries
 
+def crawl_metadata(ls_imdb_ids, multiprocessing, test):
+
+    print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
+    if(test):
+        ls_imdb_ids = ls_imdb_ids[:50]
+
+    if (multi_processing):
+        start_time = time.time()  # measure time
+
+        no_processes = 16
+        ls_ls_metadata = []
+        ls_dct_exceptions = []
+
+        len_dataset = len(ls_imdb_ids)
+        ls_splitted = np.array_split(np.array(ls_imdb_ids), no_processes)
+
+        pool = multiprocessing.Pool(processes=no_processes)
+        # m = multiprocessing.Manager()
+        # q = m.Queue()
+
+        # Pool.map returns list of pairs: https://stackoverflow.com/questions/39303117/valueerror-too-many-values-to-unpack-multiprocessing-pool
+        for ls_metadata, dct_no_entries in pool.map(worker,
+                                                    ls_splitted):  # ls_ls_metadata=pool.map(worker, ls_splitted):
+            # append both objects to a separate list
+            ls_ls_metadata.append(ls_metadata)
+            ls_dct_exceptions.append(dct_no_entries)
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+        merged_res = itertools.chain(*ls_ls_metadata)  # unpack the list to merge n lists
+        ls_metadata = list(merged_res)
+
+        df_exceptions = pd.DataFrame(ls_dct_exceptions).sum()  # sum over all rows
+
+        print_exception_statistic(df_exceptions.to_dict())
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+
+    else:
+        start_time = time.time()
+
+        ls_metadata, dct_no_entries = fetch_by_imdb_ids(ls_imdb_ids)
+        print_exception_statistic(dct_no_entries)
+
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+    df_meta = pd.DataFrame(ls_metadata)
+    print('Shape of crawled dataset:{}'.format(df_meta.shape[0]))
+    return df_meta
 
 if __name__ == '__main__':
     # df_meta = None
@@ -242,50 +290,7 @@ if __name__ == '__main__':
 
     #Enhance existing dataset by fetching metadata
     ls_imdb_ids = list(df_movies['imdbId'])
-    print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
-    ls_imdb_ids = ls_imdb_ids[:50]
-
-
-    if(multi_processing):
-            start_time = time.time() #measure time
-
-            no_processes = 16
-            ls_ls_metadata = []
-            ls_dct_exceptions = []
-
-            len_dataset = len(ls_imdb_ids)
-            ls_splitted = np.array_split(np.array(ls_imdb_ids), no_processes)
-
-            pool = multiprocessing.Pool(processes=no_processes)
-            # m = multiprocessing.Manager()
-            # q = m.Queue()
-
-            #Pool.map returns list of pairs: https://stackoverflow.com/questions/39303117/valueerror-too-many-values-to-unpack-multiprocessing-pool
-            for ls_metadata, dct_no_entries in pool.map(worker, ls_splitted): #ls_ls_metadata=pool.map(worker, ls_splitted):
-                #append both objects to a separate list
-                ls_ls_metadata.append(ls_metadata)
-                ls_dct_exceptions.append(dct_no_entries)
-            print("--- %s seconds ---" % (time.time() - start_time))
-
-            merged_res = itertools.chain(*ls_ls_metadata) #unpack the list to merge n lists
-            ls_metadata = list(merged_res)
-
-            df_exceptions = pd.DataFrame(ls_dct_exceptions).sum() #sum over all rows
-
-            print_exception_statistic(df_exceptions.to_dict())
-            print("--- %s seconds ---" % (time.time() - start_time))
-
-
-    else:
-        start_time = time.time()
-
-        ls_metadata, dct_no_entries = fetch_by_imdb_ids(ls_imdb_ids)
-        print_exception_statistic(dct_no_entries)
-
-        print("--- %s seconds ---" % (time.time() - start_time))
-
-    df_meta = pd.DataFrame(ls_metadata)
-    print('Shape of crawled dataset:{}'.format(df_meta.shape[0]))
+    df_meta = crawl_metadata(ls_imdb_ids, multiprocessing=multiprocessing, test=False)
 
     #Save dataframe
     if(small_dataset):
