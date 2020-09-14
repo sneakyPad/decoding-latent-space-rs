@@ -13,6 +13,8 @@ dct_no_entries = defaultdict(int)
 import numpy as np
 import itertools
 import os
+from collections import Counter
+
 
 # manager = multiprocessing.Manager()
 # shared_list = manager.list()
@@ -139,31 +141,28 @@ def load_dataset(small_dataset):
     return df_movies
 
 
-def names_2_ids(df):
-    # %%
-    import pandas as pd
-
+def names2ids(df, column_name):
     # df_movies = pd.read_csv("../data/openlens/small/df_movies.csv")
     df_movies = df
-    df_sub_cast = df_movies[:1]['cast']
 
     # {print(element) for element in df_sub_cast}
     # print(pd.get_dummies(df_movies[:1]['cast']))
     # print(df_movies[0]['cast'].unique())
 
-    id2actor = {}
     actor2id = defaultdict(lambda: 1+len(actor2id))
-    ls_casts = df_movies['cast'].values
+
     # [ls_casts[0].append(ls) for ls in ls_casts]
     str_test =""
     ls_names = []
 
-    #Add all actors to one single list
+    #Add all names to one single list
     print('Collect names:')
     for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
-        ls_names.extend(ast.literal_eval(row['cast'])) #literal_eval casts the list which is encoded as a string to a list
-        ls_names.extend(ast.literal_eval(row['stars']))
-        # ls_names.extend(ast.literal_eval(row['X']))
+        for column in column_name:
+            if(type(row[column])==list):
+                ls_names.extend(row[column])
+            else:
+                ls_names.extend(ast.literal_eval(row[column])) #literal_eval casts the list which is encoded as a string to a list
 
     # for idx, row in tqdm(df_movies.iterrows(), total = df_movies.shape[0]):
     #     ls_exp.extend(ast.literal_eval(row['stars']))
@@ -175,11 +174,10 @@ def names_2_ids(df):
 
     # ls_elem = ast.literal_eval(casts)
     # ls_elem = ls_elem.replace("[",'').replace("'",'').split(sep=',')
-    from collections import Counter
     c = Counter(ls_names)
     dct_bar = dict(c)
     for elem in list(ls_names):
-        actor2id[elem] #Smart because, lambda has everytime a new element was added a new default value
+        actor2id[elem] #Smart because, lambda has everytime a new element was added, a new default value
 
         # actor2id[elem] = actor2id[elem] + 1 #count the occurence of an actor
         # if (actor2id[elem] == 0): #assign an unique id to an actor/name
@@ -190,15 +188,38 @@ def names_2_ids(df):
     print(id2actor[2])
 
     print("Assign Ids to names:")
-    ls_cast_ids=[]
-    ls_stars_ids=[]
+    ls_ls_cast_ids=[]
+    ls_ls_stars_ids=[]
+    dct_ls_ids = defaultdict(list)
+    dct_ls_columns=defaultdict(list)
     for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
-        casts = ast.literal_eval(row['cast']) #literal_eval casts the list which is encoded as a string to a list
-        stars = ast.literal_eval(row['stars'])
-        ls_cast_ids.append([actor2id[name] for name in casts])
-        ls_stars_ids.append([actor2id[name] for name in stars])
-    df_movies['cast_id'] = ls_cast_ids
-    df_movies['stars_id'] = ls_stars_ids
+        for column in column_name: #column_name: ['cast','stars']
+            if (type(row[column]) == list):
+                ls_names = row[column]
+            else:
+                ls_names = ast.literal_eval(row[column]) #literal_eval casts the list which is encoded as a string to a list
+
+            # ls_names = row[column]
+            dct_ls_columns[column] = ls_names
+            # dct_ls_columns[column]= dct_ls_columns[column].append(ls_names)
+
+        # if(type(row['cast'])==list):
+        #     casts = row['cast']
+        # else:
+        #     casts = ast.literal_eval(row['cast']) #literal_eval casts the list which is encoded as a string to a list
+        # if(type(row['stars'])==list):
+        #     stars = row['stars']
+        # else:
+        #     stars = ast.literal_eval(row['stars'])
+
+        for key, ls_names in dct_ls_columns.items():
+            dct_ls_ids[key].append([actor2id[name] for name in dct_ls_columns[key]])
+        # ls_ls_cast_ids.append([actor2id[name] for name in casts])
+        # ls_ls_stars_ids.append([actor2id[name] for name in stars])
+
+    for key, ls_names in dct_ls_columns.items():
+        df_movies[key+"_id"] = dct_ls_ids[key]
+    # df_movies['stars_id'] = ls_ls_stars_ids
 
     print('fo')
     return df_movies
@@ -259,7 +280,7 @@ def crawl_metadata(ls_imdb_ids, multiprocessing, test):
 
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
     if(test):
-        ls_imdb_ids = ls_imdb_ids[:50]
+        ls_imdb_ids = ls_imdb_ids[:3]
 
     if (multi_processing):
         start_time = time.time()  # measure time
@@ -310,7 +331,7 @@ if __name__ == '__main__':
     # fetch_example()
     #Load Dataset
     small_dataset = True
-    multi_processing = True
+    multi_processing = False
     metadata = None
     crawl = True
     df_movies = load_dataset(small_dataset=small_dataset)
@@ -318,13 +339,13 @@ if __name__ == '__main__':
     if(crawl):
         #Enhance existing dataset by fetching metadata
         ls_imdb_ids = list(df_movies['imdbId'])
-        df_meta = crawl_metadata(ls_imdb_ids, multiprocessing=multiprocessing, test=True)
+        df_meta = crawl_metadata(ls_imdb_ids, multiprocessing=multi_processing, test=True)
         print('Fetching Metadata done.')
 
     # enhance_by_stars(df_meta)
 
     #transform names to ids
-    df_meta = names_2_ids(df=df_meta)
+    df_meta = names2ids(df=df_meta, column_name=['cast','stars'])
 
     # Save dataframe
     if (small_dataset):
