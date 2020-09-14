@@ -16,9 +16,22 @@ import os
 from collections import Counter
 from time import sleep
 
-
+import json
 # manager = multiprocessing.Manager()
 # shared_list = manager.list()
+
+def save_dict_as_json(dct, name):
+    with open('../data/openlens/small/' + name, 'w') as file:
+
+        json.dump(dct, file, indent=4, sort_keys=True)
+
+
+def load_json_as_dict(name):
+    with open('../data/openlens/small/' + name, 'r') as file:
+        id2names = json.loads(file)
+        return id2names
+
+
 def fetch_example():
     # create an instance of the IMDb class
     ia = IMDb()
@@ -128,6 +141,7 @@ def fetch_by_imdb_ids(ls_ids):
             #Fetch stars of the movie with bs4
             ls_stars = fetch_stars(id)
             dct_data['stars'] =ls_stars
+            dct_data['imdbId'] = id
 
             #add dict to the list of all metadata
             ls_metadata.append(dct_data)
@@ -195,6 +209,8 @@ def names2ids(df, column_name):
 
     print(actor2id)
     id2actor = {value: key for key, value in actor2id.items()}
+    save_dict_as_json(actor2id, 'names2ids.json')
+    save_dict_as_json(id2actor, 'ids2names.json')
     print(id2actor[2])
 
     print("Assign Ids to names:")
@@ -290,11 +306,11 @@ def worker(ids):
     # print('worker done')
     return metadata, dct_no_entries
 
-def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop):
+def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size):
 
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
-    if(develop):
-        ls_imdb_ids = ls_imdb_ids[:3]
+    if(develop_size>0):
+        ls_imdb_ids = ls_imdb_ids[:develop_size]
 
     if (multi_processing):
         print('Start multiprocessing...')
@@ -350,10 +366,10 @@ if __name__ == '__main__':
     #Load Dataset
     small_dataset = True
     multi_processing = True
-    develop = False
+    develop_size = 3
     metadata = None
     crawl = True
-    no_processes = 32
+    no_processes = 3
     df_movies = load_dataset(small_dataset=small_dataset)
 
     if(crawl):
@@ -362,7 +378,7 @@ if __name__ == '__main__':
         df_meta = crawl_metadata(ls_imdb_ids,
                                  multi_processing=multi_processing,
                                  no_processes=no_processes,
-                                 develop=develop)
+                                 develop_size=develop_size)
         print('Fetching Metadata done.')
 
     # enhance_by_stars(df_meta)
@@ -378,3 +394,48 @@ if __name__ == '__main__':
     else:
         df_meta.to_csv("../data/openlens/large/df_movies.csv")
     print('<----------- Processing finished ----------->')
+
+    #%%
+def benchmark_string_comparison():
+    import time
+    dct_foo = {'alpha':3,
+               'beta':1,
+               'gamma':2}
+    a = id('Tomin Hanks')
+    b= id('Tomin Cruise')
+    avg_a = avg_b= avg_c = avg_d =avg_e= avg_f=0
+    for i in range(0,10000):
+        start = time.time()
+        com = dct_foo['alpha']==dct_foo['beta']
+        avg_a +=start - time.time()
+
+
+        start = time.time()
+        com = 3==1
+        avg_b += start - time.time()
+
+        start = time.time()
+        com = 'alpha' == 'beta'
+        avg_c += start - time.time()
+
+        start = time.time()
+        com = 'Tomin d. Hanks' == 'Tomin d. Cruise'
+        avg_d += start - time.time()
+
+        start = time.time()
+        com = id('Tomin Hanks') == id('Tomin Cruise')
+        avg_e += start - time.time()
+
+        start = time.time()
+        com = a == b
+        avg_f += start - time.time()
+
+    print(i)
+    print(id('foo'))
+    avg_a = (avg_a / i) *1000
+    avg_b = (avg_b/i) * 1000
+    avg_c = (avg_c/i) * 1000
+    avg_d = (avg_d/i) * 1000
+    avg_e = (avg_e / i) * 1000
+    print(' Avg_a:{} \n Avg_b:{} \n Avg_c:{} \n Avg_d:{} \n Avg_e:{} \n Avg_f:{}'.format(avg_a,avg_b,avg_c,avg_d, avg_e, avg_f ))
+# benchmark_string_comparison()
