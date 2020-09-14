@@ -1,6 +1,6 @@
 # pip install git+https://github.com/alberanid/imdbpy
 # pip install imdbpy
-from imdb import IMDb
+from imdb import IMDb, IMDbDataAccessError
 import pandas as pd
 import time
 import requests
@@ -14,6 +14,7 @@ import numpy as np
 import itertools
 import os
 from collections import Counter
+from time import sleep
 
 
 # manager = multiprocessing.Manager()
@@ -93,38 +94,46 @@ def fetch_by_imdb_ids(ls_ids):
     # for i in range(n):
     #     time.sleep(0.1)  # do some computation
     #     bar.update()
-
+    import random
+    # cnt_connection_reset=0
     for id in tqdm(ls_ids, total = len(ls_ids)):     # loop through ls_ids
-
-        movie = imdb.get_movie(id)
-
-        # TODO Optional: select metadata
-
-        dct_data = movie.data
-
-        # to be cleaned:
-        keys_to_beautify = ['cast','directors', 'writers', 'producers', 'composers', 'editors',
-                            'animation department', 'music department', 'set decorators',
-                            'script department', 'assistant directors', 'writer', 'director']
-        for key in keys_to_beautify:
-            dct_data[key] = beautify_names(dct_data, key)
-
-        #unwrap box office:
         try:
-            dct_data.update(dct_data['box office'])
-            del dct_data['box office']
-        except KeyError:
-            print('Unwrap: key error for movieId:{} '.format(movie.movieID))# dct_data['title']
+            sleep_t = random.randint(0,10)/10
 
-        dct_data = remove_keys(dct_data, None)
+            # sleep(sleep_t)  # Time in seconds
+            #TODO Actually it should be checked whether this is single process or not, bc the IMDB Peer error occurs only w/ multiprocessing
+            movie = imdb.get_movie(id)
 
-        #Fetch stars of the movie with bs4
-        ls_stars = fetch_stars(id)
-        dct_data['stars'] =ls_stars
+            # TODO Optional: select metadata
 
-        #add dict to the list of all metadata
-        ls_metadata.append(dct_data)
+            dct_data = movie.data
 
+            # to be cleaned:
+            keys_to_beautify = ['cast','directors', 'writers', 'producers', 'composers', 'editors',
+                                'animation department', 'music department', 'set decorators',
+                                'script department', 'assistant directors', 'writer', 'director']
+            for key in keys_to_beautify:
+                dct_data[key] = beautify_names(dct_data, key)
+
+            #unwrap box office:
+            try:
+                dct_data.update(dct_data['box office'])
+                del dct_data['box office']
+            except KeyError:
+                pass
+                # print('Unwrap: key error for movieId:{} '.format(movie.movieID))# dct_data['title']
+
+            dct_data = remove_keys(dct_data, None)
+
+            #Fetch stars of the movie with bs4
+            ls_stars = fetch_stars(id)
+            dct_data['stars'] =ls_stars
+
+            #add dict to the list of all metadata
+            ls_metadata.append(dct_data)
+        except Exception:
+            print('Exception for id:{}'.format(id))
+            # cnt_connection_reset+=1
 
     return ls_metadata, dct_no_entries
 
@@ -142,6 +151,7 @@ def load_dataset(small_dataset):
 
 
 def names2ids(df, column_name):
+    print('--- Transform names to ids and add an extra column for it ---')
     # df_movies = pd.read_csv("../data/openlens/small/df_movies.csv")
     df_movies = df
 
@@ -264,30 +274,36 @@ def enhance_by_stars(df):
     return df
 
 def print_exception_statistic(dct_no_entries):
+    print('[--------- Exception Statistics ---------]')
+    # print('No. of ConnectionResetError: {}'.format(cnt_reset))
     print('Joined No-Keys-Exception for the following keys:')
     for key, value in dct_no_entries.items():
-        print("Key: {}, count:{}, relative: {}".format(key, value, value / len(ls_imdb_ids)))
+        print("\tKey: {}, count:{}, relative: {}".format(key, value, value / len(ls_imdb_ids)))
+    print('[----------------------------------------]')
+
 
 
 def worker(ids):
     # global shared_list https://stackoverflow.com/questions/40630428/share-a-list-between-different-processes-in-python
     metadata, dct_no_entries = fetch_by_imdb_ids(ids)
     # shared_list.extend(metadata)
-    print('worker done')
+    # print('worker done')
     return metadata, dct_no_entries
 
-def crawl_metadata(ls_imdb_ids, multiprocessing, test):
+def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop):
 
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
-    if(test):
+    if(develop):
         ls_imdb_ids = ls_imdb_ids[:3]
 
     if (multi_processing):
+        print('Start multiprocessing...')
         start_time = time.time()  # measure time
 
-        no_processes = 16
+        no_processes = no_processes
         ls_ls_metadata = []
         ls_dct_exceptions = []
+        cnt_reset = 0
 
         len_dataset = len(ls_imdb_ids)
         ls_splitted = np.array_split(np.array(ls_imdb_ids), no_processes)
@@ -297,11 +313,12 @@ def crawl_metadata(ls_imdb_ids, multiprocessing, test):
         # q = m.Queue()
 
         # Pool.map returns list of pairs: https://stackoverflow.com/questions/39303117/valueerror-too-many-values-to-unpack-multiprocessing-pool
-        for ls_metadata, dct_no_entries in pool.map(worker,
-                                                    ls_splitted):  # ls_ls_metadata=pool.map(worker, ls_splitted):
+        for ls_metadata, dct_no_entries in pool.map(worker,ls_splitted):  # ls_ls_metadata=pool.map(worker, ls_splitted):
             # append both objects to a separate list
             ls_ls_metadata.append(ls_metadata)
             ls_dct_exceptions.append(dct_no_entries)
+
+
         print("--- %s seconds ---" % (time.time() - start_time))
 
         merged_res = itertools.chain(*ls_ls_metadata)  # unpack the list to merge n lists
@@ -326,29 +343,38 @@ def crawl_metadata(ls_imdb_ids, multiprocessing, test):
     return df_meta
 
 if __name__ == '__main__':
+    print('<----------- Metadata Crawler has started ----------->')
     # df_meta = None
 
     # fetch_example()
     #Load Dataset
     small_dataset = True
-    multi_processing = False
+    multi_processing = True
+    develop = False
     metadata = None
     crawl = True
+    no_processes = 32
     df_movies = load_dataset(small_dataset=small_dataset)
 
     if(crawl):
         #Enhance existing dataset by fetching metadata
         ls_imdb_ids = list(df_movies['imdbId'])
-        df_meta = crawl_metadata(ls_imdb_ids, multiprocessing=multi_processing, test=True)
+        df_meta = crawl_metadata(ls_imdb_ids,
+                                 multi_processing=multi_processing,
+                                 no_processes=no_processes,
+                                 develop=develop)
         print('Fetching Metadata done.')
 
     # enhance_by_stars(df_meta)
 
     #transform names to ids
+
     df_meta = names2ids(df=df_meta, column_name=['cast','stars'])
 
     # Save dataframe
+    print('Save enhanced openlens dataset...')
     if (small_dataset):
         df_meta.to_csv("../data/openlens/small/df_movies.csv")
     else:
         df_meta.to_csv("../data/openlens/large/df_movies.csv")
+    print('<----------- Processing finished ----------->')
