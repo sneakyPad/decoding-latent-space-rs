@@ -136,10 +136,10 @@ class VAE(pl.LightningModule):
     def load_dataset(self):
         if (self.small_dataset):
             print("Load small dataset")
-            df_ratings = pd.read_csv("../data/openlens/small/ratings.csv")
+            df_ratings = pd.read_csv("../data/movielens/small/ratings.csv")
         else:
             print("Load large dataset")
-            df_ratings = pd.read_csv("../data/openlens/large/ratings.csv")
+            df_ratings = pd.read_csv("../data/movielens/large/ratings.csv")
 
         self.np_user_item, self.unique_movies = create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
         self.train_dataset, self.test_dataset = train_test_split(self.np_user_item, test_size=self.test_size, random_state=42)
@@ -206,7 +206,7 @@ class VAE(pl.LightningModule):
 
 def match_metadata(y_hat, df_links):
     ls_indezes = y_hat.values.index
-    df_links = pd.read_csv('../data/openlens/small/links.csv')
+    df_links = pd.read_csv('../data/movielens/small/links.csv')
     imdb_ids = df_links.loc[df_links['movieId']==ls_indezes,['imdbId']]
     df_movies.loc[ids==imdbID]
     y_hat_w_metadata = None

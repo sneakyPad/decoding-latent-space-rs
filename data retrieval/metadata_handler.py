@@ -21,13 +21,13 @@ import json
 # shared_list = manager.list()
 
 def save_dict_as_json(dct, name):
-    with open('../data/openlens/small/' + name, 'w') as file:
+    with open('../data/movielens/small/' + name, 'w') as file:
 
         json.dump(dct, file, indent=4, sort_keys=True)
 
 
 def load_json_as_dict(name):
-    with open('../data/openlens/small/' + name, 'r') as file:
+    with open('../data/movielens/small/' + name, 'r') as file:
         id2names = json.loads(file)
         return id2names
 
@@ -156,17 +156,17 @@ def load_dataset(small_dataset):
     if (small_dataset):
         print("Load small dataset")
         #%%
-        df_movies = pd.read_csv("../data/openlens/small/links.csv")
+        df_movies = pd.read_csv("../data/movielens/small/links.csv")
     else:
         print("Load large dataset")
-        df_movies = pd.read_csv("../data/openlens/large/links.csv")
+        df_movies = pd.read_csv("../data/movielens/large/links.csv")
 
     return df_movies
 
 
 def names2ids(df, column_name):
     print('--- Transform names to ids and add an extra column for it ---')
-    # df_movies = pd.read_csv("../data/openlens/small/df_movies.csv")
+    # df_movies = pd.read_csv("../data/movielens/small/df_movies.csv")
     df_movies = df
 
     # {print(element) for element in df_sub_cast}
@@ -430,7 +430,7 @@ def compute_relative_frequency(df_meta):
 
 
 if __name__ == '__main__':
-    # df_meta = pd.read_csv('../data/openlens/small/df_movies.csv')
+    df_meta = pd.read_csv('../data/movielens/small/df_movies.csv')
     # compute_relative_frequency(df_meta)
     print('<----------- Metadata Crawler has started ----------->')
     # df_meta = None
@@ -462,11 +462,11 @@ if __name__ == '__main__':
     dct_attribute_distribution = compute_relative_frequency(df_meta)
     save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
     # Save dataframe
-    print('Save enhanced openlens dataset...')
+    print('Save enhanced movielens dataset...')
     if (small_dataset):
-        df_meta.to_csv("../data/openlens/small/df_movies.csv")
+        df_meta.to_csv("../data/movielens/small/df_movies.csv")
     else:
-        df_meta.to_csv("../data/openlens/large/df_movies.csv")
+        df_meta.to_csv("../data/movielens/large/df_movies.csv")
     print('<----------- Processing finished ----------->')
 
     #%%

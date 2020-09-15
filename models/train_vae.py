@@ -175,10 +175,10 @@ def train(dct_hyperparam: dict, simplified_rating: bool, small_dataset: bool):
     epoch = dct_hyperparam["epochs"]
     if (small_dataset):
         print("Load small dataset")
-        df_ratings = pd.read_csv("../data/openlens/small/ratings.csv")
+        df_ratings = pd.read_csv("../data/movielens/small/ratings.csv")
     else:
         print("Load large dataset")
-        df_ratings = pd.read_csv("../data/openlens/large/ratings.csv")
+        df_ratings = pd.read_csv("../data/movielens/large/ratings.csv")
 
     print("Training started...")
     np_user_item = create_user_item_matrix(df_ratings, simplified_rating=simplified_rating)
