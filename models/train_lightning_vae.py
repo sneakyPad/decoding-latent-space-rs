@@ -109,8 +109,9 @@ class VAE(pl.LightningModule):
         self.fc1 = nn.Linear(in_features=self.unique_movies, out_features=400) #input
         self.fc21 = nn.Linear(in_features=400, out_features=20) #encoder mean
         self.fc22 = nn.Linear(in_features=400, out_features=20) #encoder variance
-        self.fc3 = nn.Linear(in_features=20, out_features=400)
+        self.fc3 = nn.Linear(in_features=20, out_features=400) #hidden layer
         self.fc4 = nn.Linear(in_features=400, out_features=self.unique_movies)
+
 
         # self.save_hyperparameters()
 
@@ -165,6 +166,7 @@ class VAE(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
+        print('train step')
         ts_batch_user_features = batch
         recon_batch, mu, logvar = self.forward(ts_batch_user_features)  # sample data
         batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies)
@@ -177,6 +179,8 @@ class VAE(pl.LightningModule):
     #     return 0
     #
     def test_step(self, batch, batch_idx):
+        print('test step')
+
         model.eval()
         ts_batch_user_features = batch
 
@@ -186,6 +190,7 @@ class VAE(pl.LightningModule):
 
         recon_batch, mu, logvar = model(ts_batch_user_features)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies).item()
+        batch_mce =
         loss = batch_loss / len(ts_batch_user_features)
 
         return {'test_loss': batch_loss}
@@ -198,6 +203,36 @@ class VAE(pl.LightningModule):
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
         tensorboard_logs = {'test_loss': avg_loss}
         return {'test_loss': avg_loss, 'test_log': tensorboard_logs}
+
+def match_metadata(y_hat, df_links):
+    ls_indezes = y_hat.values.index
+    df_links = pd.read_csv('../data/openlens/small/links.csv')
+    imdb_ids = df_links.loc[df_links['movieId']==ls_indezes,['imdbId']]
+    df_movies.loc[ids==imdbID]
+    y_hat_w_metadata = None
+    return y_hat_w_metadata
+
+def mce_relative_frequency():
+    y_hat_w_metadata = match_metadata(y_hat)
+    load relative frequency distributioon from dictionary (pickle it)
+    dct_dist = pickle.load(movies_distribution)
+
+#MCE is calculated for each category
+def mce_batch(y_hat, model):
+    # hold n neurons of hidden layer
+    # change 1 neuron
+    # y_hat = model(y) TODO Needs to be in
+    # mce()
+    y_hat_w_metadata = match_metadata(y_hat)
+
+        for attribute in y_hat_w_metadata:
+            characteristic = y_hat_w_metadata[attribute].value
+            relative_frequency = dct_attribute_distribution[attribute][characteristic]
+            print('Attribute: {}, Relative frequency:{}'.format(attribute, relative_frequency))
+
+
+
+
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
@@ -356,9 +391,12 @@ trainer = pl.Trainer.from_argparse_args(args,
 
 
 #%%
-
+from torchsummaryX import summary
+import hiddenlayer as hl
 print("Running with the following configuration: \n{}".format(args))
 model = VAE(**model_params)
+print(model)
+# summary(model, (193610))
 trainer.fit(model)
 trainer.test(model) #The test loop will not be used until you call.
 
