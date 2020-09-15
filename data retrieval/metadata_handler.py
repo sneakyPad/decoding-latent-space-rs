@@ -163,67 +163,19 @@ def load_dataset(small_dataset):
 
     return df_movies
 
-
-def names2ids(df, column_name):
-    print('--- Transform names to ids and add an extra column for it ---')
-    # df_movies = pd.read_csv("../data/movielens/small/df_movies.csv")
-    df_movies = df
-
-    # {print(element) for element in df_sub_cast}
-    # print(pd.get_dummies(df_movies[:1]['cast']))
-    # print(df_movies[0]['cast'].unique())
-
-    actor2id = defaultdict(lambda: 1+len(actor2id))
-
-    # [ls_casts[0].append(ls) for ls in ls_casts]
-    str_test =""
-    ls_names = []
-
-    #Add all names to one single list
-    print('... Collect names:')
-    for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
-        for column in column_name:
-            if(type(row[column])==list):
-                ls_names.extend(row[column])
-            else:
-                ls_names.extend(ast.literal_eval(row[column])) #literal_eval casts the list which is encoded as a string to a list
-
-    # for idx, row in tqdm(df_movies.iterrows(), total = df_movies.shape[0]):
-    #     ls_exp.extend(ast.literal_eval(row['stars']))
-
-    # fpp = ','.join(df_movies['cast'].replace("[",''))
-
-    # for ls_elem in df_sub_cast:
-    # pd.unique(df_movies['cast'].values[0])
-
-    # ls_elem = ast.literal_eval(casts)
-    # ls_elem = ls_elem.replace("[",'').replace("'",'').split(sep=',')
-    c = Counter(ls_names)
-    dct_bar = dict(c)
-    for elem in list(ls_names):
-        actor2id[elem] #Smart because, lambda has everytime a new element was added, a new default value
-
-        # actor2id[elem] = actor2id[elem] + 1 #count the occurence of an actor
-        # if (actor2id[elem] == 0): #assign an unique id to an actor/name
-        #     actor2id[elem] = len(actor2id)
-
-    print(actor2id)
-    id2actor = {value: key for key, value in actor2id.items()}
-    save_dict_as_json(actor2id, 'names2ids.json')
-    save_dict_as_json(id2actor, 'ids2names.json')
-    # print(id2actor[2])
-
-    print("... Assign Ids to names:")
-    ls_ls_cast_ids=[]
-    ls_ls_stars_ids=[]
+#extracts baed on column_name a nested list of the attribute, e.g. cast and creates
+# a second list with the respective ids that are looked up in actor2id.
+# you can extract more columns by adding them to column_name
+def ids2names(df_movies, actor2id, column_name):
     dct_ls_ids = defaultdict(list)
-    dct_ls_columns=defaultdict(list)
+    dct_ls_columns = defaultdict(list)
     for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
-        for column in column_name: #column_name: ['cast','stars']
+        for column in column_name:  # column_name: ['cast','stars']
             if (type(row[column]) == list):
                 ls_names = row[column]
             else:
-                ls_names = ast.literal_eval(row[column]) #literal_eval casts the list which is encoded as a string to a list
+                ls_names = ast.literal_eval(
+                    row[column])  # literal_eval casts the list which is encoded as a string to a list
 
             # ls_names = row[column]
             dct_ls_columns[column] = ls_names
@@ -243,14 +195,51 @@ def names2ids(df, column_name):
         # ls_ls_cast_ids.append([actor2id[name] for name in casts])
         # ls_ls_stars_ids.append([actor2id[name] for name in stars])
 
+    return dct_ls_columns, dct_ls_ids
+
+def names2ids(df, column_name):
+    print('--- Transform names to ids and add an extra column for it ---')
+    # df_movies = pd.read_csv("../data/movielens/small/df_movies.csv")
+    df_movies = df
+    actor2id = defaultdict(lambda: 1+len(actor2id))
+
+    # [ls_casts[0].append(ls) for ls in ls_casts]
+    ls_names = []
+
+    #Add all names to one single list
+    print('... Collect names:')
+    for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
+        for column in column_name:
+            if(type(row[column])==list):
+                ls_names.extend(row[column])
+            else:
+                ls_names.extend(ast.literal_eval(row[column])) #literal_eval casts the list which is encoded as a string to a list
+
+    # ls_elem = ls_elem.replace("[",'').replace("'",'').split(sep=',')
+    c = Counter(ls_names)
+    dct_bar = dict(c)
+    for elem in list(ls_names):
+        actor2id[elem] #Smart because, lambda has everytime a new element was added, a new default value
+        # actor2id[elem] = actor2id[elem] + 1 #count the occurence of an actor
+        # if (actor2id[elem] == 0): #assign an unique id to an actor/name
+        #     actor2id[elem] = len(actor2id)
+
+    print(actor2id)
+    id2actor = {value: key for key, value in actor2id.items()}
+    save_dict_as_json(actor2id, 'names2ids.json')
+    save_dict_as_json(id2actor, 'ids2names.json')
+    # print(id2actor[2])
+
+    print("... Assign Ids to names:")
+    dct_ls_columns, dct_ls_ids = ids2names(df_movies,actor2id,column_name)
+
+    # lists look like this:
+    # dct_ls_columns = {'cast':['wesley snipes','brad pitt'...]
+    # dct_ls_ids ={'cast':[22,33,...]}
     for key, ls_names in dct_ls_columns.items():
         df_movies[key+"_id"] = dct_ls_ids[key]
-    # df_movies['stars_id'] = ls_ls_stars_ids
 
     return df_movies
-
-        # ls_names.extend(ast.literal_eval(row['stars']))
-
 
 def fetch_stars(id):
 
@@ -282,11 +271,12 @@ def fetch_stars(id):
     finally:
         return ls_stars
 
+# TODO Unfinished: This is not done yet
 def enhance_by_stars(df):
-    # TODO This is not done yet
-    tqdm.pandas(desc="my bar!")
-    df['stars'] = df['movieID'].apply(lambda id: fetch_stars(id))
-    return df
+    pass
+    # tqdm.pandas(desc="my bar!")
+    # df['stars'] = df['movieID'].apply(lambda id: fetch_stars(id))
+    # return df
 
 def print_exception_statistic(dct_no_entries):
     print('[--------- Exception Statistics ---------]')
@@ -295,7 +285,6 @@ def print_exception_statistic(dct_no_entries):
     for key, value in dct_no_entries.items():
         print("\tKey: {}, count:{}, relative: {}".format(key, value, value / len(ls_imdb_ids)))
     print('[----------------------------------------]')
-
 
 
 def worker(ids):
@@ -460,11 +449,11 @@ if __name__ == '__main__':
 
     df_meta = names2ids(df=df_meta, column_name=['cast','stars'])
     dct_attribute_distribution = compute_relative_frequency(df_meta)
-    save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
-    # Save dataframe
+    # Save data
     print('Save enhanced movielens dataset...')
     if (small_dataset):
         df_meta.to_csv("../data/movielens/small/df_movies.csv")
+        save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
     else:
         df_meta.to_csv("../data/movielens/large/df_movies.csv")
     print('<----------- Processing finished ----------->')
