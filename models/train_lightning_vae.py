@@ -18,6 +18,7 @@ from torch.nn import functional as F
 from torch.optim.lr_scheduler import StepLR
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
+import json
 
 import pytorch_lightning as pl
 #ToDo EDA:
@@ -43,7 +44,7 @@ import pytorch_lightning as pl
 
 seed = 42
 torch.manual_seed(seed)
-
+from collections import defaultdict
 
 #%%
 # pip install pytorch-lightning
@@ -74,8 +75,6 @@ def create_user_item_matrix(df, simplified_rating: bool):
             from sklearn.preprocessing import normalize
 
             # min_max_scaler = preprocessing.MinMaxScaler()
-
-
 
             ls_rated_items = df.loc[df["userId"] == user_id]["rating"].values
             # df_array = ls_rated_items.reshape(-1, 1)
@@ -190,7 +189,7 @@ class VAE(pl.LightningModule):
 
         recon_batch, mu, logvar = model(ts_batch_user_features)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies).item()
-        batch_mce =
+        batch_mce = mce_batch(model, ts_batch_user_features)
         loss = batch_loss / len(ts_batch_user_features)
 
         return {'test_loss': batch_loss}
@@ -204,31 +203,64 @@ class VAE(pl.LightningModule):
         tensorboard_logs = {'test_loss': avg_loss}
         return {'test_loss': avg_loss, 'test_log': tensorboard_logs}
 
+
+def load_json_as_dict(name):
+    with open('../data/movielens/small/' + name, 'r') as file:
+        id2names = json.loads(file)
+        return id2names
+
 def match_metadata(y_hat, df_links):
     ls_indezes = y_hat.values.index
     df_links = pd.read_csv('../data/movielens/small/links.csv')
+    df_movies = pd.read_csv('../data/movielens/small/df_movies.csv')
     imdb_ids = df_links.loc[df_links['movieId']==ls_indezes,['imdbId']]
-    df_movies.loc[ids==imdbID]
-    y_hat_w_metadata = None
+    y_hat_w_metadata = df_movies.loc[df_movies['ids']==imdb_ids]
     return y_hat_w_metadata
+
 
 def mce_relative_frequency():
     y_hat_w_metadata = match_metadata(y_hat)
-    load relative frequency distributioon from dictionary (pickle it)
-    dct_dist = pickle.load(movies_distribution)
-
+    dct_dist = load_json_as_dict('relative_frequency.json') #    load relative frequency distributioon from dictionary (pickle it)
+    # dct_dist = pickle.load(movies_distribution)
+    return
 #MCE is calculated for each category
-def mce_batch(y_hat, model):
+def mce_batch(model, ts_batch_features):
     # hold n neurons of hidden layer
     # change 1 neuron
-    # y_hat = model(y) TODO Needs to be in
+    ls_y_hat, mu, logvar = model(ts_batch_features)
     # mce()
-    y_hat_w_metadata = match_metadata(y_hat)
+    df_links = None
+    ls_idx_y = (-ts_batch_features).argsort()
+    ls_idx_yhat = (-ls_y_hat).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+    mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
+    ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
 
-        for attribute in y_hat_w_metadata:
-            characteristic = y_hat_w_metadata[attribute].value
-            relative_frequency = dct_attribute_distribution[attribute][characteristic]
-            print('Attribute: {}, Relative frequency:{}'.format(attribute, relative_frequency))
+
+    ls_non_zeroes = torch.nonzero(ts_batch_features, as_tuple=True)
+    tpl_users = ls_non_zeroes[0]
+    tpl_items = ls_non_zeroes[1]
+    dct_seen_items = defaultdict(list)
+    for idx in range(0,len(tpl_users)):
+        user_idx = int(tpl_users[idx])
+        item_idx = int(tpl_items[idx])
+        dct_seen_items[user_idx].append(item_idx)
+        print(dct_seen_items)
+
+    #TODO Can be slow, find another way
+    for user_idx, item_idx in ls_indizes_not_null:
+        mask_not_null[user_idx][item_idx] = True
+    # mask_not_null = ts_batch_features > 0 TODO This is an alternative to the for loop, test it
+
+    #Go through the list of list of the predicted batch
+    for y_hat in ls_y_hat:
+
+
+        y_hat_w_metadata = match_metadata(y_hat, df_links)
+
+    # for attribute in y_hat_w_metadata:
+    #     characteristic = y_hat_w_metadata[attribute].value
+    #     relative_frequency = dct_attribute_distribution[attribute][characteristic]
+    #     print('Attribute: {}, Relative frequency:{}'.format(attribute, relative_frequency))
 
 
 
@@ -321,9 +353,9 @@ test_dataset = None
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=2, metavar='N',
+parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--max_epochs', type=int, default=2, metavar='N',
+parser.add_argument('--max_epochs', type=int, default=1, metavar='N',
                     help='number of max epochs to train (default: 15)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
