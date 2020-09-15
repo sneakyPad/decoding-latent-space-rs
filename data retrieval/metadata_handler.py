@@ -123,8 +123,8 @@ def fetch_by_imdb_ids(ls_ids):
 
             # to be cleaned:
             keys_to_beautify = ['cast','directors', 'writers', 'producers', 'composers', 'editors',
-                                'animation department', 'music department', 'set decorators',
-                                'script department', 'assistant directors', 'writer', 'director']
+                                'animation department', 'casting department','music department', 'set decorators',
+                                'script department', 'assistant directors', 'writer', 'director', 'costume designers']
             for key in keys_to_beautify:
                 dct_data[key] = beautify_names(dct_data, key)
 
@@ -180,7 +180,7 @@ def names2ids(df, column_name):
     ls_names = []
 
     #Add all names to one single list
-    print('Collect names:')
+    print('... Collect names:')
     for idx, row in tqdm(df_movies.iterrows(), total=df_movies.shape[0]):
         for column in column_name:
             if(type(row[column])==list):
@@ -211,9 +211,9 @@ def names2ids(df, column_name):
     id2actor = {value: key for key, value in actor2id.items()}
     save_dict_as_json(actor2id, 'names2ids.json')
     save_dict_as_json(id2actor, 'ids2names.json')
-    print(id2actor[2])
+    # print(id2actor[2])
 
-    print("Assign Ids to names:")
+    print("... Assign Ids to names:")
     ls_ls_cast_ids=[]
     ls_ls_stars_ids=[]
     dct_ls_ids = defaultdict(list)
@@ -247,7 +247,6 @@ def names2ids(df, column_name):
         df_movies[key+"_id"] = dct_ls_ids[key]
     # df_movies['stars_id'] = ls_ls_stars_ids
 
-    print('fo')
     return df_movies
 
         # ls_names.extend(ast.literal_eval(row['stars']))
@@ -358,7 +357,81 @@ def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size):
     print('Shape of crawled dataset:{}'.format(df_meta.shape[0]))
     return df_meta
 
+import math
+def my_eval(expression):
+    try:
+        return ast.literal_eval(str(expression))
+    except SyntaxError: #e.g. a ":" or "(", which is interpreted by eval as command
+            return expression
+    except ValueError: #e.g. an entry is nan, in that case just return an empty string
+        return ''
+
+def compute_relative_frequency(df_meta):
+    #Goal is:
+    #Cast:
+        # Tom Hanks: 0,3%
+        # Matt Damon: 0,2%
+    # fpp =np.vstack(df_meta['genres'].values)
+    # np_array = df_meta['genres'].values
+    # tmp_list = []
+    # for element in np_array:
+    #     tmp_list.extend(eval(element))
+
+    # print(fpp)
+    #TODO Implement my eval: https://stackoverflow.com/questions/31423864/check-if-string-can-be-evaluated-with-eval-in-python
+    dct_rel_freq={}
+    for column in df_meta.columns:
+    #     ls_ls_casted=[]
+    #     for str_elem in df_meta[column].values:
+    #         str_elem= str(str_elem)#.replace(':','').replace('(','').replace(')','')
+    #         try:
+    #             ls_ls_casted.append(ast.literal_eval(str_elem))
+    #         except SyntaxError:
+    #             ls_ls_casted.append(str_elem)
+
+        ls_ls_casted = [my_eval(str_elem) for str_elem in df_meta[column].values] #cast encoded lists to real list
+        # ls_ls_casted = [json.loads(str(str_elem)) for str_elem in df_meta[column].values] #cast encoded lists to real list
+        try:
+            if(type(ls_ls_casted[0]) == list):
+                merged_res = itertools.chain(*ls_ls_casted) #join all lists to one single list
+                ls_merged = list(merged_res)
+            else:
+                ls_merged = ls_ls_casted
+            c = Counter(ls_merged)
+            dct_counter = {str(key): value for key, value in c.items()}
+            dct_rel_freq[column]={}
+            dct_rel_freq[column]['absolute'] = dct_counter
+
+            dct_rel_attribute = {str(key): value / sum(c.values()) for key, value in dct_counter.items()} #TODO create a dict with key val
+            dct_rel_freq[column]['relative'] = dct_rel_attribute
+        except TypeError:
+            print('TypeError for Column:{} and ls_ls_casted:{} and *ls_ls_casted:{}'.format(column, ls_ls_casted, *ls_ls_casted))
+
+
+
+    save_dict_as_json(dct_rel_freq, 'relative_frequency.json')
+        # tmp_list = []
+        # for element in df_meta[column]:
+        #
+        #     ls_ls_casted = [eval(str_elem) for str_elem in df_meta[element].values]
+        #     itertools.chain(*ls_ls_casted)
+        #     if(type(element)==str):
+        #         tmp_list.extend(eval(element))
+        #    # tmp_list.value
+
+        # dct_rel_freq[element] =
+        # df_meta[column] = tmp_list
+
+    # df = df_meta['cast'][0].value_counts()
+    # print(df)
+
+
+
+
+
 if __name__ == '__main__':
+    # df_meta = pd.read_csv('../data/openlens/small/df_movies.csv')
+    # compute_relative_frequency(df_meta)
     print('<----------- Metadata Crawler has started ----------->')
     # df_meta = None
 
@@ -366,10 +439,10 @@ if __name__ == '__main__':
     #Load Dataset
     small_dataset = True
     multi_processing = True
-    develop_size = 3
+    develop_size = 5000
     metadata = None
     crawl = True
-    no_processes = 3
+    no_processes = 32
     df_movies = load_dataset(small_dataset=small_dataset)
 
     if(crawl):
@@ -386,7 +459,8 @@ if __name__ == '__main__':
     #transform names to ids
 
     df_meta = names2ids(df=df_meta, column_name=['cast','stars'])
-
+    dct_attribute_distribution = compute_relative_frequency(df_meta)
+    save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
     # Save dataframe
     print('Save enhanced openlens dataset...')
     if (small_dataset):
@@ -439,3 +513,8 @@ def benchmark_string_comparison():
     avg_e = (avg_e / i) * 1000
     print(' Avg_a:{} \n Avg_b:{} \n Avg_c:{} \n Avg_d:{} \n Avg_e:{} \n Avg_f:{}'.format(avg_a,avg_b,avg_c,avg_d, avg_e, avg_f ))
 # benchmark_string_comparison()
+#%%
+    import pandas as pd
+
+    df = df_meta.value_counts()
+    print(df.head())
