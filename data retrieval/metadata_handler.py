@@ -15,23 +15,76 @@ import itertools
 import os
 from collections import Counter
 from time import sleep
-
+import math
 import json
 # manager = multiprocessing.Manager()
 # shared_list = manager.list()
+def benchmark_string_comparison():
+    import time
+    dct_foo = {'alpha':3,
+               'beta':1,
+               'gamma':2}
+    a = id('Tomin Hanks')
+    b= id('Tomin Cruise')
+    avg_a = avg_b= avg_c = avg_d =avg_e= avg_f=0
+    for i in range(0,10000):
+        start = time.time()
+        com = dct_foo['alpha']==dct_foo['beta']
+        avg_a +=start - time.time()
 
+
+        start = time.time()
+        com = 3==1
+        avg_b += start - time.time()
+
+        start = time.time()
+        com = 'alpha' == 'beta'
+        avg_c += start - time.time()
+
+        start = time.time()
+        com = 'Tomin d. Hanks' == 'Tomin d. Cruise'
+        avg_d += start - time.time()
+
+        start = time.time()
+        com = id('Tomin Hanks') == id('Tomin Cruise')
+        avg_e += start - time.time()
+
+        start = time.time()
+        com = a == b
+        avg_f += start - time.time()
+
+    print(i)
+    print(id('foo'))
+    avg_a = (avg_a / i) *1000
+    avg_b = (avg_b/i) * 1000
+    avg_c = (avg_c/i) * 1000
+    avg_d = (avg_d/i) * 1000
+    avg_e = (avg_e / i) * 1000
+    print(' Avg_a:{} \n Avg_b:{} \n Avg_c:{} \n Avg_d:{} \n Avg_e:{} \n Avg_f:{}'.format(avg_a,avg_b,avg_c,avg_d, avg_e, avg_f ))
+# benchmark_string_comparison()
+#%%
+    import pandas as pd
+
+    # df = df_meta.value_counts()
+    # print(df.head())
 def save_dict_as_json(dct, name):
     with open('../data/movielens/small/' + name, 'w') as file:
 
         json.dump(dct, file, indent=4, sort_keys=True)
-
-
 def load_json_as_dict(name):
     with open('../data/movielens/small/' + name, 'r') as file:
         id2names = json.loads(file)
         return id2names
+def load_dataset(small_dataset):
+    if (small_dataset):
+        print("Load small dataset")
+        #%%
+        df_movies = pd.read_csv("../data/movielens/small/links.csv")
+    else:
+        print("Load large dataset")
+        df_movies = pd.read_csv("../data/movielens/large/links.csv")
 
-
+    return df_movies
 def fetch_example():
     # create an instance of the IMDb class
     ia = IMDb()
@@ -61,13 +114,8 @@ def fetch_example():
 
 def beautify_names(dct_data, key):
     # clean actors:
-
     # start_time = time.time()
-
     ls_names = []
-
-
-
     try:
         for actor in dct_data[key]:
             if(bool(actor)):
@@ -79,8 +127,6 @@ def beautify_names(dct_data, key):
     # print("--- %s seconds ---" % (time.time() - start_time))
     # total_time_one +=time.time() - start_time
     return ls_names
-
-
 
 def remove_keys(dict, keys):
     if(keys == None):
@@ -101,12 +147,6 @@ def fetch_by_imdb_ids(ls_ids):
     imdb = IMDb()
     ls_metadata =[]
 
-    # import sys
-    # import pyprind
-    # bar = pyprind.ProgBar(df_movies.shape[0], stream=sys.stdout)
-    # for i in range(n):
-    #     time.sleep(0.1)  # do some computation
-    #     bar.update()
     import random
     # cnt_connection_reset=0
     for id in tqdm(ls_ids, total = len(ls_ids)):     # loop through ls_ids
@@ -148,20 +188,8 @@ def fetch_by_imdb_ids(ls_ids):
         except Exception:
             print('Exception for id:{}'.format(id))
             # cnt_connection_reset+=1
-
     return ls_metadata, dct_no_entries
 
-
-def load_dataset(small_dataset):
-    if (small_dataset):
-        print("Load small dataset")
-        #%%
-        df_movies = pd.read_csv("../data/movielens/small/links.csv")
-    else:
-        print("Load large dataset")
-        df_movies = pd.read_csv("../data/movielens/large/links.csv")
-
-    return df_movies
 
 #extracts baed on column_name a nested list of the attribute, e.g. cast and creates
 # a second list with the respective ids that are looked up in actor2id.
@@ -333,7 +361,6 @@ def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size):
         print_exception_statistic(df_exceptions.to_dict())
         print("--- %s seconds ---" % (time.time() - start_time))
 
-
     else:
         start_time = time.time()
 
@@ -346,7 +373,6 @@ def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size):
     print('Shape of crawled dataset:{}'.format(df_meta.shape[0]))
     return df_meta
 
-import math
 def my_eval(expression):
     try:
         return ast.literal_eval(str(expression))
@@ -416,9 +442,9 @@ def compute_relative_frequency(df_meta):
 
 
 
-
-
 if __name__ == '__main__':
+    # benchmark_string_comparison()
+
     df_meta = pd.read_csv('../data/movielens/small/df_movies.csv')
     # compute_relative_frequency(df_meta)
     print('<----------- Metadata Crawler has started ----------->')
@@ -432,11 +458,11 @@ if __name__ == '__main__':
     metadata = None
     crawl = True
     no_processes = 32
-    df_movies = load_dataset(small_dataset=small_dataset)
+    df_links = load_dataset(small_dataset=small_dataset)
 
     if(crawl):
         #Enhance existing dataset by fetching metadata
-        ls_imdb_ids = list(df_movies['imdbId'])
+        ls_imdb_ids = list(df_links['imdbId'])
         df_meta = crawl_metadata(ls_imdb_ids,
                                  multi_processing=multi_processing,
                                  no_processes=no_processes,
@@ -459,51 +485,3 @@ if __name__ == '__main__':
     print('<----------- Processing finished ----------->')
 
     #%%
-def benchmark_string_comparison():
-    import time
-    dct_foo = {'alpha':3,
-               'beta':1,
-               'gamma':2}
-    a = id('Tomin Hanks')
-    b= id('Tomin Cruise')
-    avg_a = avg_b= avg_c = avg_d =avg_e= avg_f=0
-    for i in range(0,10000):
-        start = time.time()
-        com = dct_foo['alpha']==dct_foo['beta']
-        avg_a +=start - time.time()
-
-
-        start = time.time()
-        com = 3==1
-        avg_b += start - time.time()
-
-        start = time.time()
-        com = 'alpha' == 'beta'
-        avg_c += start - time.time()
-
-        start = time.time()
-        com = 'Tomin d. Hanks' == 'Tomin d. Cruise'
-        avg_d += start - time.time()
-
-        start = time.time()
-        com = id('Tomin Hanks') == id('Tomin Cruise')
-        avg_e += start - time.time()
-
-        start = time.time()
-        com = a == b
-        avg_f += start - time.time()
-
-    print(i)
-    print(id('foo'))
-    avg_a = (avg_a / i) *1000
-    avg_b = (avg_b/i) * 1000
-    avg_c = (avg_c/i) * 1000
-    avg_d = (avg_d/i) * 1000
-    avg_e = (avg_e / i) * 1000
-    print(' Avg_a:{} \n Avg_b:{} \n Avg_c:{} \n Avg_d:{} \n Avg_e:{} \n Avg_f:{}'.format(avg_a,avg_b,avg_c,avg_d, avg_e, avg_f ))
-# benchmark_string_comparison()
-#%%
-    import pandas as pd
-
-    df = df_meta.value_counts()
-    print(df.head())
