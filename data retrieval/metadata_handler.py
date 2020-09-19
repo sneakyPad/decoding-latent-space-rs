@@ -169,7 +169,7 @@ def fetch_movie(id, imdb):
     return dct_data
 
 
-def fetch_by_imdb_ids(ls_ids):
+def fetch_by_imdb_ids(ls_ids, crawl_from_scratch):
     imdb = IMDb()
     ls_metadata =[]
 
@@ -181,7 +181,7 @@ def fetch_by_imdb_ids(ls_ids):
             # sleep_t = random.randint(0,10)/10
             # sleep(sleep_t)  # Time in seconds
             dct_data ={}
-            if(crawl_from_scratch):
+            if(crawl_from_scratch[0][0]):
                 dct_data = fetch_movie(id, imdb)
                 dct_data['imdbId'] = id
 
@@ -287,7 +287,7 @@ def fetch_stars(id):
     ls_stars = []
 
     try:
-        url = "https://www.imdb.com/title/tt0{}/?ref_=rvi_tt".format(id)
+        url = "https://www.imdb.com/title/{}/?ref_=rvi_tt".format(id)
         req = requests.get(url, headers)
         soup = BeautifulSoup(req.content, 'html.parser')
         h4_stars = soup.find("h4", text='Stars:')
@@ -321,14 +321,16 @@ def print_exception_statistic(dct_no_entries):
     print('[----------------------------------------]')
 
 
-def worker(ids):
+def worker(args):#ids, crawl_from_scratch
+    ids = args[0]
+    crawl_from_scratch = args[1]
     # global shared_list https://stackoverflow.com/questions/40630428/share-a-list-between-different-processes-in-python
-    metadata, dct_no_entries = fetch_by_imdb_ids(ids)
+    metadata, dct_no_entries = fetch_by_imdb_ids(ids, crawl_from_scratch)
     # shared_list.extend(metadata)
     # print('worker done')
     return metadata, dct_no_entries
 
-def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size):
+def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size, crawl_from_scratch):
 
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
     if(develop_size>0):
@@ -345,13 +347,14 @@ def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size):
 
         len_dataset = len(ls_imdb_ids)
         ls_splitted = np.array_split(np.array(ls_imdb_ids), no_processes)
+        ls_crawl = np.array_split(np.array(crawl_from_scratch), no_processes)
 
         pool = multiprocessing.Pool(processes=no_processes)
         # m = multiprocessing.Manager()
         # q = m.Queue()
 
         # Pool.map returns list of pairs: https://stackoverflow.com/questions/39303117/valueerror-too-many-values-to-unpack-multiprocessing-pool
-        for ls_metadata, dct_no_entries in pool.map(worker,ls_splitted):  # ls_ls_metadata=pool.map(worker, ls_splitted):
+        for ls_metadata, dct_no_entries in pool.map(worker,[[ls_splitted, ls_crawl]]):  # ls_ls_metadata=pool.map(worker, ls_splitted):
             # append both objects to a separate list
             ls_ls_metadata.append(ls_metadata)
             ls_dct_exceptions.append(dct_no_entries)
@@ -452,14 +455,23 @@ if __name__ == '__main__':
     df_movies_large = pd.read_csv('../data/kaggle/df_imdb_kaggle.csv')
     df_links = load_dataset(small_dataset=True)
 
-    df_links['imdb_title_id'] = 'tt0'+df_links['imdbId'].astype(str)
-    df_movies_large['imdb_title_id']= df_movies_large['imdb_title_id'].astype(str)
+    # df_links['imdb_title_id'] = 'tt0'+df_links['imdbId'].astype(str) if
+    for idx in range(df_links.shape[0]): #iterrows does not preserve dtypes
+        prefix = 'tt0'
+        # str_imdb_id = row['imdbId'].astype(str)
+        # if(len(str_imdb_id) >6):
+        imdb_id = df_links.loc[idx,'imdbId']
+        if(imdb_id >= 1000000):
+            prefix='tt'
+        df_links.loc[idx,'imdb_title_id'] = prefix + str(imdb_id)
+
     df_links_joined_one = df_links.set_index('imdb_title_id').join(df_movies_large.set_index('imdb_title_id'), on='imdb_title_id', how='left')
+    # df_links_joined_one.to_csv('../data/generated/df_links_kaggle.csv')
     # df_links_joined = df_links.merge(df_movies_large, on='imdb_title_id')
-    print('fo')
+
     # benchmark_string_comparison()
 
-    df_meta = pd.read_csv('../data/movielens/small/df_movies.csv')
+    # df_meta = pd.read_csv('../data/movielens/small/df_movies.csv')
     # compute_relative_frequency(df_meta)
     print('<----------- Metadata Crawler has started ----------->')
     # df_meta = None
@@ -468,30 +480,36 @@ if __name__ == '__main__':
     #Load Dataset
     small_dataset = True
     multi_processing = True
-    develop_size = 5000
+    develop_size = 5
     metadata = None
     crawl = True
     no_processes = 32
     df_links = load_dataset(small_dataset=small_dataset)
-
     if(crawl):
         #Enhance existing dataset by fetching metadata
-        ls_imdb_ids = list(df_links['imdbId'])
+        # ls_imdb_ids = list(df_links['imdbId'])
+        ls_imdb_ids = list(df_links_joined_one.index)
+
+        ls_crawl_from_scratch = [False] * len(ls_imdb_ids)
+
         df_meta = crawl_metadata(ls_imdb_ids,
                                  multi_processing=multi_processing,
                                  no_processes=no_processes,
-                                 develop_size=develop_size)
+                                 develop_size=develop_size,
+                                 crawl_from_scratch = ls_crawl_from_scratch)
         print('Fetching Metadata done.')
+
 
     # enhance_by_stars(df_meta)
 
     #transform names to ids
-
     df_meta = names2ids(df=df_meta, column_name=['cast','stars'])
     dct_attribute_distribution = compute_relative_frequency(df_meta)
     # Save data
     print('Save enhanced movielens dataset...')
     if (small_dataset):
+        if(df_links_joined_one != None):
+            df_links_joined_one
         df_meta.to_csv("../data/movielens/small/df_movies.csv")
         save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
     else:
