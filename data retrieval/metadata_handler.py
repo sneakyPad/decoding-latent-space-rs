@@ -143,6 +143,32 @@ def remove_keys(dict, keys):
         dict.pop(key, None)
     return dict
 
+def fetch_movie(id, imdb):
+    # TODO Actually it should be checked whether this is single process or not, bc the IMDB Peer error occurs only w/ multiprocessing
+    movie = imdb.get_movie(id)
+
+    # TODO Optional: select metadata
+    dct_data = movie.data
+
+    # to be cleaned:
+    keys_to_beautify = ['cast', 'directors', 'writers', 'producers', 'composers', 'editors',
+                        'animation department', 'casting department', 'music department', 'set decorators',
+                        'script department', 'assistant directors', 'writer', 'director', 'costume designers']
+    for key in keys_to_beautify:
+        dct_data[key] = beautify_names(dct_data, key)
+
+    # unwrap box office:
+    try:
+        dct_data.update(dct_data['box office'])
+        del dct_data['box office']
+    except KeyError:
+        pass
+        # print('Unwrap: key error for movieId:{} '.format(movie.movieID))# dct_data['title']
+
+    dct_data = remove_keys(dct_data, None)
+    return dct_data
+
+
 def fetch_by_imdb_ids(ls_ids):
     imdb = IMDb()
     ls_metadata =[]
@@ -151,37 +177,17 @@ def fetch_by_imdb_ids(ls_ids):
     # cnt_connection_reset=0
     for id in tqdm(ls_ids, total = len(ls_ids)):     # loop through ls_ids
         try:
-            sleep_t = random.randint(0,10)/10
 
+            # sleep_t = random.randint(0,10)/10
             # sleep(sleep_t)  # Time in seconds
-            #TODO Actually it should be checked whether this is single process or not, bc the IMDB Peer error occurs only w/ multiprocessing
-            movie = imdb.get_movie(id)
-
-            # TODO Optional: select metadata
-
-            dct_data = movie.data
-
-            # to be cleaned:
-            keys_to_beautify = ['cast','directors', 'writers', 'producers', 'composers', 'editors',
-                                'animation department', 'casting department','music department', 'set decorators',
-                                'script department', 'assistant directors', 'writer', 'director', 'costume designers']
-            for key in keys_to_beautify:
-                dct_data[key] = beautify_names(dct_data, key)
-
-            #unwrap box office:
-            try:
-                dct_data.update(dct_data['box office'])
-                del dct_data['box office']
-            except KeyError:
-                pass
-                # print('Unwrap: key error for movieId:{} '.format(movie.movieID))# dct_data['title']
-
-            dct_data = remove_keys(dct_data, None)
+            dct_data ={}
+            if(crawl_from_scratch):
+                dct_data = fetch_movie(id, imdb)
+                dct_data['imdbId'] = id
 
             #Fetch stars of the movie with bs4
             ls_stars = fetch_stars(id)
             dct_data['stars'] =ls_stars
-            dct_data['imdbId'] = id
 
             #add dict to the list of all metadata
             ls_metadata.append(dct_data)
@@ -443,6 +449,14 @@ def compute_relative_frequency(df_meta):
 
 
 if __name__ == '__main__':
+    df_movies_large = pd.read_csv('../data/kaggle/df_imdb_kaggle.csv')
+    df_links = load_dataset(small_dataset=True)
+
+    df_links['imdb_title_id'] = 'tt0'+df_links['imdbId'].astype(str)
+    df_movies_large['imdb_title_id']= df_movies_large['imdb_title_id'].astype(str)
+    df_links_joined_one = df_links.set_index('imdb_title_id').join(df_movies_large.set_index('imdb_title_id'), on='imdb_title_id', how='left')
+    # df_links_joined = df_links.merge(df_movies_large, on='imdb_title_id')
+    print('fo')
     # benchmark_string_comparison()
 
     df_meta = pd.read_csv('../data/movielens/small/df_movies.csv')
