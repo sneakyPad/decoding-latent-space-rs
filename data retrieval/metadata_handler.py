@@ -404,6 +404,7 @@ def my_eval(expression):
         return ''
 
 def compute_relative_frequency(df_meta):
+    print('Compute relative frequency for all columns and their attributes...')
     #Goal is:
     #Cast:
         # Tom Hanks: 0,3%
@@ -417,7 +418,7 @@ def compute_relative_frequency(df_meta):
     # print(fpp)len_crawled_ids
     #TODO Implement my eval: https://stackoverflow.com/questions/31423864/check-if-string-can-be-evaluated-with-eval-in-python
     dct_rel_freq={}
-    for column in df_meta.columns:
+    for column in tqdm(df_meta.columns, total=len(df_meta.columns)):
     #     ls_ls_casted=[]
     #     for str_elem in df_meta[column].values:
     #         str_elem= str(str_elem)#.replace(':','').replace('(','').replace(')','')
