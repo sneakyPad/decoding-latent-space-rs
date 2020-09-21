@@ -603,14 +603,20 @@ def clean_movies(df_movies: pd.DataFrame):
 
     print('Columns before renaming: {}', df_cleaned_two.columns)
     df = janitor.clean_names(df_cleaned_two)
-    print('Columns after renaming: {}', df.columns.columns)
+    print('Columns after renaming: {}', df.columns)
+    df=df.fillna('missing')
+    import re
+    df['original_air_date'] = df['original_air_date'].apply(lambda x: re.findall('\d{4}',x))
+
     return df
 
     # df.to_csv('../data/generated/df_movies_cleaned.csv')
 if __name__ == '__main__':
     # main()
-
-    dct_attribute_distribution = compute_relative_frequency(pd.read_csv('../data/generated/df_movies_cleaned.csv'))
-    save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
+    df_movies = pd.read_csv('../data/generated/df_movies_cleaned.csv')
+    df = clean_movies(df_movies)
+    df.to_csv('../data/generated/df_movies_cleaned2.csv')
+    # dct_attribute_distribution = compute_relative_frequency(pd.read_csv('../data/generated/df_movies_cleaned.csv'))
+    # save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
 
     #%%
