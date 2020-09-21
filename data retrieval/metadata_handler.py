@@ -17,6 +17,8 @@ from collections import Counter
 from time import sleep
 import math
 import json
+import janitor
+
 # manager = multiprocessing.Manager()
 # shared_list = manager.list()
 def benchmark_string_comparison():
@@ -169,31 +171,42 @@ def fetch_movie(id, imdb):
     return dct_data
 
 
-def fetch_by_imdb_ids(ls_ids, crawl_from_scratch):
+def fetch_by_imdb_ids(ls_tpl_ids):
     imdb = IMDb()
     ls_metadata =[]
 
     import random
     # cnt_connection_reset=0
-    for id in tqdm(ls_ids, total = len(ls_ids)):     # loop through ls_ids
-        try:
+    try:
+        # Example:
+        # (103,1) => entire movie + metadata is missing
+        # (103,0) => only metadata is missing
+        for tpl_id_missing in tqdm(ls_tpl_ids, total = len(ls_tpl_ids)):     # loop through ls_ids
+                dct_data={}
 
-            # sleep_t = random.randint(0,10)/10
-            # sleep(sleep_t)  # Time in seconds
-            dct_data ={}
-            if(crawl_from_scratch[0][0]):
-                dct_data = fetch_movie(id, imdb)
+                id=tpl_id_missing[0]
+                is_movie_missing = tpl_id_missing[1]
+
+                tt_id = imdb_id_2_full_Id(id)
+
+                sleep_t = random.randint(2,7)
+                sleep(sleep_t)  # Time in seconds
+
+                # if(crawl_from_scratch[0][0]):
                 dct_data['imdbId'] = id
 
-            #Fetch stars of the movie with bs4
-            ls_stars = fetch_stars(id)
-            dct_data['stars'] =ls_stars
+                if(is_movie_missing):
+                    dct_data = fetch_movie(id, imdb)
 
-            #add dict to the list of all metadata
-            ls_metadata.append(dct_data)
-        except Exception:
-            print('Exception for id:{}'.format(id))
-            # cnt_connection_reset+=1
+                #Fetch stars of the movie with bs4
+                ls_stars = fetch_stars(tt_id)
+                dct_data['stars'] =ls_stars
+
+                #add dict to the list of all metadata
+                ls_metadata.append(dct_data)
+    except Exception:
+        print('Exception for id:{}'.format(id))
+        # cnt_connection_reset+=1
     return ls_metadata, dct_no_entries
 
 
@@ -301,7 +314,7 @@ def fetch_stars(id):
         # next_a_tag.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling.next_sibling['class'][0] == 'ghost'
         # print(ls_stars)
     except AttributeError:
-        print('AttributeError, movieId:{}'.format(id))
+        print('AttributeError (most likely no stars are available), movieId:{}'.format(id))
     finally:
         return ls_stars
 
@@ -312,25 +325,25 @@ def enhance_by_stars(df):
     # df['stars'] = df['movieID'].apply(lambda id: fetch_stars(id))
     # return df
 
-def print_exception_statistic(dct_no_entries):
+def print_exception_statistic(dct_no_entries, len_crawled_ids):
     print('[--------- Exception Statistics ---------]')
     # print('No. of ConnectionResetError: {}'.format(cnt_reset))
     print('Joined No-Keys-Exception for the following keys:')
     for key, value in dct_no_entries.items():
-        print("\tKey: {}, count:{}, relative: {}".format(key, value, value / len(ls_imdb_ids)))
+        print("\tKey: {}, count:{}, relative: {}".format(key, value, value /len_crawled_ids))
     print('[----------------------------------------]')
 
 
-def worker(args):#ids, crawl_from_scratch
-    ids = args[0]
-    crawl_from_scratch = args[1]
+def worker(ids):#ids, crawl_from_scratch
+    # ids = args[0]
+    # ls_missing_imdb_ids = args[1]
     # global shared_list https://stackoverflow.com/questions/40630428/share-a-list-between-different-processes-in-python
-    metadata, dct_no_entries = fetch_by_imdb_ids(ids, crawl_from_scratch)
+    metadata, dct_no_entries = fetch_by_imdb_ids(ids)
     # shared_list.extend(metadata)
     # print('worker done')
     return metadata, dct_no_entries
 
-def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size, crawl_from_scratch):
+def crawl_metadata(ls_imdb_ids,multi_processing, no_processes, develop_size):
 
     print('Fetching metadata of {} movies'.format(len(ls_imdb_ids)))
     if(develop_size>0):
@@ -347,14 +360,14 @@ def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size, cr
 
         len_dataset = len(ls_imdb_ids)
         ls_splitted = np.array_split(np.array(ls_imdb_ids), no_processes)
-        ls_crawl = np.array_split(np.array(crawl_from_scratch), no_processes)
+        # ls_missing_imdb_ids = np.array_split(np.array(ls_missing_imdb_ids), no_processes)
 
         pool = multiprocessing.Pool(processes=no_processes)
         # m = multiprocessing.Manager()
         # q = m.Queue()
 
         # Pool.map returns list of pairs: https://stackoverflow.com/questions/39303117/valueerror-too-many-values-to-unpack-multiprocessing-pool
-        for ls_metadata, dct_no_entries in pool.map(worker,[[ls_splitted, ls_crawl]]):  # ls_ls_metadata=pool.map(worker, ls_splitted):
+        for ls_metadata, dct_no_entries in pool.map(worker,ls_splitted):  # ls_ls_metadata=pool.map(worker, ls_splitted):
             # append both objects to a separate list
             ls_ls_metadata.append(ls_metadata)
             ls_dct_exceptions.append(dct_no_entries)
@@ -367,7 +380,7 @@ def crawl_metadata(ls_imdb_ids, multi_processing, no_processes, develop_size, cr
 
         df_exceptions = pd.DataFrame(ls_dct_exceptions).sum()  # sum over all rows
 
-        print_exception_statistic(df_exceptions.to_dict())
+        print_exception_statistic(df_exceptions.to_dict(),len(ls_imdb_ids))
         print("--- %s seconds ---" % (time.time() - start_time))
 
     else:
@@ -401,7 +414,7 @@ def compute_relative_frequency(df_meta):
     # for element in np_array:
     #     tmp_list.extend(eval(element))
 
-    # print(fpp)
+    # print(fpp)len_crawled_ids
     #TODO Implement my eval: https://stackoverflow.com/questions/31423864/check-if-string-can-be-evaluated-with-eval-in-python
     dct_rel_freq={}
     for column in df_meta.columns:
@@ -449,23 +462,37 @@ def compute_relative_frequency(df_meta):
     # df = df_meta['cast'][0].value_counts()
     # print(df)
 
+def imdb_id_2_full_Id(imdb_id):
+    # str_imdb_id = row['imdbId'].astype(str)
+    # if(len(str_imdb_id) >6):
+    if (imdb_id >= 1000000):
+        prefix = 'tt'
+    elif(imdb_id >= 100000):
+        prefix = 'tt0'
+    elif(imdb_id >= 10000):
+        prefix = 'tt00'
+    else:
+        prefix = 'tt000'
 
+    return prefix + str(imdb_id)
 
-if __name__ == '__main__':
+def join_kaggle_with_links():
     df_movies_large = pd.read_csv('../data/kaggle/df_imdb_kaggle.csv')
     df_links = load_dataset(small_dataset=True)
 
     # df_links['imdb_title_id'] = 'tt0'+df_links['imdbId'].astype(str) if
-    for idx in range(df_links.shape[0]): #iterrows does not preserve dtypes
-        prefix = 'tt0'
-        # str_imdb_id = row['imdbId'].astype(str)
-        # if(len(str_imdb_id) >6):
-        imdb_id = df_links.loc[idx,'imdbId']
-        if(imdb_id >= 1000000):
-            prefix='tt'
-        df_links.loc[idx,'imdb_title_id'] = prefix + str(imdb_id)
+    for idx in range(df_links.shape[0]):  # iterrows does not preserve dtypes
+        full_id = imdb_id_2_full_Id(df_links.loc[idx, 'imdbId'])
+        df_links.loc[idx, 'imdb_title_id'] = full_id
 
-    df_links_joined_one = df_links.set_index('imdb_title_id').join(df_movies_large.set_index('imdb_title_id'), on='imdb_title_id', how='left')
+    df_links_joined_one = df_links.set_index('imdb_title_id').join(df_movies_large.set_index('imdb_title_id'),
+                                                                   on='imdb_title_id', how='left')
+    df_links_joined_one.to_csv('../data/generated/df_joined_partly.csv', index_label='imdb_title_id')
+
+def main():
+    # join_kaggle_with_links()
+
+    df_links_joined_one = pd.read_csv('../data/generated/df_joined_partly.csv')
     # df_links_joined_one.to_csv('../data/generated/df_links_kaggle.csv')
     # df_links_joined = df_links.merge(df_movies_large, on='imdb_title_id')
 
@@ -477,43 +504,98 @@ if __name__ == '__main__':
     # df_meta = None
 
     # fetch_example()
-    #Load Dataset
+    # Load Dataset
     small_dataset = True
     multi_processing = True
-    develop_size = 5
+    develop_size = 80
     metadata = None
     crawl = True
     no_processes = 32
     df_links = load_dataset(small_dataset=small_dataset)
-    if(crawl):
-        #Enhance existing dataset by fetching metadata
-        # ls_imdb_ids = list(df_links['imdbId'])
-        ls_imdb_ids = list(df_links_joined_one.index)
+    if (crawl):
+        # Enhance existing dataset by fetching metadata
+        ls_imdb_ids = list(df_links_joined_one.loc[~df_links_joined_one['title'].isna()]['imdbId'])  # list(df_links['imdbId'])
+        ls_tpl_imdb_ids = [(id, False) for id in ls_imdb_ids]
 
-        ls_crawl_from_scratch = [False] * len(ls_imdb_ids)
+        ls_missing_imdb_ids = list(df_links_joined_one.loc[df_links_joined_one['title'].isna()]['imdbId'])
+        ls_tpl_missing_imdb_ids = [(id, True) for id in ls_missing_imdb_ids]
+        ls_tpl_imdb_ids.extend(ls_tpl_missing_imdb_ids)
+        ls_tpl_imdb_ids= ls_tpl_imdb_ids[6000:]
+        # ls_imdb_ids = list(df_links_joined_one.index)
 
-        df_meta = crawl_metadata(ls_imdb_ids,
+        # ls_crawl_from_scratch = [False] * len(ls_missing_imdb_ids)
+
+        df_meta = crawl_metadata(ls_tpl_imdb_ids,
                                  multi_processing=multi_processing,
                                  no_processes=no_processes,
-                                 develop_size=develop_size,
-                                 crawl_from_scratch = ls_crawl_from_scratch)
+                                 develop_size=develop_size
+                                 )
         print('Fetching Metadata done.')
 
+    print('col df_links_joined_one:', len(df_links_joined_one))
 
-    # enhance_by_stars(df_meta)
+    for col in df_meta.columns:
+        if(col not in df_links_joined_one.columns):
+            df_links_joined_one[col]=""
+    #Extend origiinial dataframe by columns of new one:
+    for row_idx in range(df_meta.shape[0]):
+        row = df_meta.loc[row_idx,]
+        row['imdbId'] = int(row['imdbId'])
+        imdb_id = row['imdbId']
 
-    #transform names to ids
-    df_meta = names2ids(df=df_meta, column_name=['cast','stars'])
+        #set row
+        df_links_joined_one.loc[df_links_joined_one['imdbId'] == imdb_id, df_meta.columns] = row
+
+    # for col in df_meta.columns:
+    #     df_links_joined_one[col]=df_meta[col]
+
+    print('col df_links_joined_one:', len(df_links_joined_one))
+    num_nans_before = len(ls_missing_imdb_ids)
+    # df_links_joined_one.set_index('imdbId').update(df_meta.set_index('imdbId'))
+    # df_meta = df_meta.fillna('missing')
+    # df_links_joined_one = df_links_joined_one.update(df_meta, raise_conflict=True)
+
+    # TODO Iterate through indizes of df_meta and update df_links_joined_one --> Should be obsolete once I pass all Ids to crawling
+
+    print("Nans before:{}, Nans after joining:{} (Before must be greater)".format(num_nans_before, df_links_joined_one[
+        'title'].isna().sum()))
+    assert num_nans_before > df_links_joined_one['title'].isna().sum()
+
+    # transform names to ids
+    df_meta = names2ids(df=df_meta, column_name=['cast', 'stars'])
+
     dct_attribute_distribution = compute_relative_frequency(df_meta)
     # Save data
     print('Save enhanced movielens dataset...')
     if (small_dataset):
-        if(df_links_joined_one != None):
-            df_links_joined_one
+        # if(df_links_joined_one != None):
+        #     df_links_joined_one
         df_meta.to_csv("../data/movielens/small/df_movies.csv")
         save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
     else:
         df_meta.to_csv("../data/movielens/large/df_movies.csv")
     print('<----------- Processing finished ----------->')
+
+if __name__ == '__main__':
+    # main()
+
+    #clean data
+    print('Removing data with more than 80% holding nans..')
+    df_movies = pd.read_csv('../data/generated/df_movies.csv')
+    print('Shape:{}'.format(df_movies.shape))
+    df_cleaned = df_movies.dropna(axis=1, how='all')
+    print('Sum of isNull for all columns: ',df_cleaned.isnull().sum() )
+    df_cleaned_two = df_cleaned.loc[:, df_cleaned.isnull().sum() < 0.8 * df_cleaned.shape[0]]#ist asks: Which columns have less nans than 80% of the data? And those you have to keep
+    print('Shape: {}'.format(df_cleaned_two.shape))
+
+    print('columns: {}', df_cleaned_two.columns)
+    df = janitor.clean_names(df_cleaned_two)
+    print('columns: {}', df.columns)
+    df.to_csv('../data/generated/df_movies_cleaned.csv')
+
+
+
+    print('fo'
+    )
 
     #%%
