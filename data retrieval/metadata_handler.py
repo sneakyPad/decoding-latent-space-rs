@@ -419,6 +419,7 @@ def compute_relative_frequency(df_meta):
     #TODO Implement my eval: https://stackoverflow.com/questions/31423864/check-if-string-can-be-evaluated-with-eval-in-python
     dct_rel_freq={}
     for column in tqdm(df_meta.columns, total=len(df_meta.columns)):
+        print('Column: {}'.format(column))
     #     ls_ls_casted=[]
     #     for str_elem in df_meta[column].values:
     #         str_elem= str(str_elem)#.replace(':','').replace('(','').replace(')','')
@@ -435,13 +436,17 @@ def compute_relative_frequency(df_meta):
                 ls_merged = list(merged_res)
             else:
                 ls_merged = ls_ls_casted
-            c = Counter(ls_merged)
-            dct_counter = {str(key): value for key, value in c.items()}
-            dct_rel_freq[column]={}
-            dct_rel_freq[column]['absolute'] = dct_counter
+            if(column not in ['Unnamed: 0', 'unnamed_0']):
+                c = Counter(ls_merged)
+                dct_counter = {str(key): value for key, value in c.items()}
+                dct_rel_freq[column]={}
+                dct_rel_freq[column]['absolute'] = dct_counter
+                # print('Column: {}\n\t absolute:{}'.format(dct_rel_freq[column]['absolute']))
 
-            dct_rel_attribute = {str(key): value / sum(c.values()) for key, value in dct_counter.items()} #TODO create a dict with key val
-            dct_rel_freq[column]['relative'] = dct_rel_attribute
+                dct_rel_attribute = {str(key): value / sum(c.values()) for key, value in dct_counter.items()} #TODO create a dict with key val
+                dct_rel_freq[column]['relative'] = dct_rel_attribute
+                # print('\t relative:{}'.format(dct_rel_freq[column]['relative']))
+
         except TypeError:
             print('TypeError for Column:{} and ls_ls_casted:{} and *ls_ls_casted:{}'.format(column, ls_ls_casted, *ls_ls_casted))
 
