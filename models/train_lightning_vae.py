@@ -56,6 +56,7 @@ from collections import defaultdict
 ##Shape: (n_user, n_items)
 max_unique_movies = 0
 unique_movies = 0
+dct_index2itemId={}
 def extract_rating_information(df, hack):
     user_item_mx_offset = 0 #TODO This is rather a hack, consider to remove it
     if(hack):
@@ -80,7 +81,7 @@ def pivot_create_user_item_matrix(df: pd.DataFrame, simplified_rating: bool):
     df_user_item = df.pivot(index="userId", columns="movieId", values="rating")
     df_user_item = df_user_item.fillna(0)
     ##Create Mapping
-    dct_index2itemId ={}
+    # dct_index2itemId ={}
     for index, item_id in enumerate(df_user_item.columns):
         dct_index2itemId[index]=item_id
 
@@ -224,7 +225,7 @@ class VAE(pl.LightningModule):
 
         recon_batch, mu, logvar = model(ts_batch_user_features)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies).item()
-        batch_mce = mce_batch(model, ts_batch_user_features, k=10)
+        batch_mce = mce_batch(model, ts_batch_user_features, k=1)
         loss = batch_loss / len(ts_batch_user_features)
 
         return {'test_loss': batch_loss}
@@ -240,23 +241,25 @@ class VAE(pl.LightningModule):
 
 
 def load_json_as_dict(name):
-    with open('../data/movielens/small/' + name, 'r') as file:
-        id2names = json.loads(file)
+    with open('../data/generated/' + name, 'r') as file:
+        id2names = json.load(file)
         return id2names
 
 def mce_relative_frequency(y, y_hat_w_metadata):
-    dct_attribute_distribution = load_json_as_dict('relative_frequency.json') #    load relative frequency distributioon from dictionary (pickle it)
+    dct_attribute_distribution = load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
     # dct_dist = pickle.load(movies_distribution)
 
-    dct_mce= defaultdict(float)
-    for attribute in y_hat_w_metadata:
-        if(y[attribute].value == y_hat_w_metadata[attribute].value):
-            dct_mce[attribute] = 1
-        else:
-            characteristic = y_hat_w_metadata[attribute].value
-            relative_frequency = dct_attribute_distribution[attribute]['relative'][characteristic]
-            dct_mce[attribute] = relative_frequency
-            print('Attribute: {}, Relative frequency:{}'.format(attribute, relative_frequency))
+    dct_mce = defaultdict(float)
+    for idx_vector in range(y.shape[0]):
+        for attribute in y_hat_w_metadata:
+            if(attribute not in ['Unnamed: 0', 'unnamed_0']):
+                if(y.loc[idx_vector, attribute] == y_hat_w_metadata.loc[idx_vector, attribute]):
+                    dct_mce[attribute] = 1
+                else:
+                    characteristic = y_hat_w_metadata[attribute].value
+                    relative_frequency = dct_attribute_distribution[attribute]['relative'][characteristic]
+                    dct_mce[attribute] = relative_frequency
+                    print('Attribute: {}, Relative frequency:{}'.format(attribute, relative_frequency))
 
     return dct_mce
 
@@ -265,9 +268,15 @@ def match_metadata(indezes, df_links):
     # ls_indezes = y_hat.values.index
     #TODO Source read_csv out
     df_links = pd.read_csv('../data/movielens/small/links.csv')
-    df_movies = pd.read_csv('../data/movielens/small/df_movies.csv')
+    df_movies = pd.read_csv('../data/generated/df_movies_cleaned.csv')
     # df_imdb_ids = df_links.loc[df_links['movieId'].isin(indezes),['imdbId']] #dataframe
-    sr_imdb_ids = df_links[df_links["movieId"].isin(indezes)]['imdbId'] #If I want to keep the
+
+    global dct_index2itemId
+
+    ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes] #ml = MovieLens
+
+
+    sr_imdb_ids = df_links[df_links["movieId"].isin(ls_ml_ids)]['imdbId'] #If I want to keep the
     imdb_ids = sr_imdb_ids.array
 
     print('no of imdbIds:{}, no of indezes:{}'.format(len(imdb_ids), len(indezes)))
@@ -276,7 +285,7 @@ def match_metadata(indezes, df_links):
         print('There were items recommended that have not been seen by any users in the dataset. Trained on 9725 movies but 193610 are available so df_links has only 9725 to pick from')
     assert len(imdb_ids) == len(indezes)
     #df_links.loc[df_links["movieId"] == indezes]
-    df_w_metadata = df_movies.loc[df_movies['imdbId'].isin(imdb_ids)]
+    df_w_metadata = df_movies.loc[df_movies['imdbid'].isin(imdb_ids)]
 
     return df_w_metadata
 
@@ -287,10 +296,12 @@ def mce_batch(model, ts_batch_features, k):
     # hold n neurons of hidden layer
     # change 1 neuron
     ls_y_hat, mu, logvar = model(ts_batch_features)
+    ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features)
     # mce()
     df_links = None
-    ls_idx_y = (-ts_batch_features).argsort()
-    ls_idx_yhat = (-ls_y_hat).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+    ls_idx_y = (-ts_batch_features).argsort()[:k]
+    ls_idx_yhat = (-ls_y_hat).argsort()[:k]  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+    ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()[:k]  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
     mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
     ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
 
@@ -313,7 +324,7 @@ def mce_batch(model, ts_batch_features, k):
 
 
     #Go through the list of list of the predicted batch
-    for user_idx, ls_seen_items in dct_seen_items.items():
+    for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
         y_hat = ls_y_hat[user_idx]
         no_of_seen_items = len(ls_seen_items) #TODO Add k
         y_hat_k_highest = (-y_hat).argsort()[:no_of_seen_items] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
@@ -321,7 +332,7 @@ def mce_batch(model, ts_batch_features, k):
         y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), df_links)
         y_w_metadata = match_metadata(ls_seen_items, df_links)
 
-        single_mce = mce_relative_frequency(y_w_metadata, y_hat_w_metadata)
+        single_mce = mce_relative_frequency(y_w_metadata, y_hat_w_metadata) #mce for n columns
         print(single_mce)
 
 
@@ -358,7 +369,7 @@ parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--max_epochs', type=int, default=5, metavar='N',
+parser.add_argument('--max_epochs', type=int, default=1, metavar='N',
                     help='number of max epochs to train (default: 15)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -402,23 +413,23 @@ merged_params = (lambda first_dict, second_dict: {**first_dict, **second_dict})(
 
 #%%
 
-
-neptune_logger = NeptuneLogger(
-    #api_key="key",
-    project_name="paer/recommender-xai",
-    experiment_name="neptune-logs",  # Optional,
-    params = merged_params,
-    # params={"max_epochs": 1,
-    #         "batch_size": 32},  # Optional,
-    close_after_fit=True, #must be False if test method should be logged
-    tags=["pytorch-lightning", "vae","unique-movies-small"]  # Optional,
-
-)
+#
+# neptune_logger = NeptuneLogger(
+#     #api_key="key",
+#     project_name="paer/recommender-xai",
+#     experiment_name="neptune-logs",  # Optional,
+#     params = merged_params,
+#     # params={"max_epochs": 1,
+#     #         "batch_size": 32},  # Optional,
+#     close_after_fit=True, #must be False if test method should be logged
+#     tags=["pytorch-lightning", "vae","unique-movies-small"]  # Optional,
+#
+# )
 
 trainer = pl.Trainer.from_argparse_args(args,
                                         #max_epochs=1, automatically processed by Pytorch Light
-                                        logger=neptune_logger,
-                                        # logger=False,
+                                        # logger=neptune_logger,
+                                        logger=False,
                                         checkpoint_callback = False,
                                         gpus=0
                                         #num_nodes=4
@@ -438,7 +449,7 @@ model = VAE(**model_params)
 print('------ Start Training ------')
 trainer.fit(model)
 print('------ Start Test ------')
-# trainer.test(model) #The test loop will not be used until you call.
+trainer.test(model) #The test loop will not be used until you call.
 
 #%%
 # plot_ae_img(batch_features,test_loader)
