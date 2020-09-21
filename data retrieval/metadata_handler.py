@@ -70,11 +70,11 @@ def benchmark_string_comparison():
     # df = df_meta.value_counts()
     # print(df.head())
 def save_dict_as_json(dct, name):
-    with open('../data/movielens/small/' + name, 'w') as file:
+    with open('../data/generated/' + name, 'w') as file:
 
         json.dump(dct, file, indent=4, sort_keys=True)
 def load_json_as_dict(name):
-    with open('../data/movielens/small/' + name, 'r') as file:
+    with open('../data/generated/' + name, 'r') as file:
         id2names = json.loads(file)
         return id2names
 def load_dataset(small_dataset):
@@ -445,8 +445,11 @@ def compute_relative_frequency(df_meta):
             print('TypeError for Column:{} and ls_ls_casted:{} and *ls_ls_casted:{}'.format(column, ls_ls_casted, *ls_ls_casted))
 
 
+    return dct_rel_freq
+    # save_dict_as_json(dct_rel_freq, 'relative_frequency.json')
 
-    save_dict_as_json(dct_rel_freq, 'relative_frequency.json')
+
+
         # tmp_list = []
         # for element in df_meta[column]:
         #
@@ -509,7 +512,7 @@ def main():
     multi_processing = True
     develop_size = 80
     metadata = None
-    crawl = True
+    crawl = False
     no_processes = 32
     df_links = load_dataset(small_dataset=small_dataset)
     if (crawl):
@@ -531,6 +534,10 @@ def main():
                                  develop_size=develop_size
                                  )
         print('Fetching Metadata done.')
+        df_meta = clean_movies(df_meta)
+
+    # else:
+    #     df_meta.to_csv('../data/generated/df_movies_cleaned.csv')
 
     print('col df_links_joined_one:', len(df_links_joined_one))
 
@@ -570,32 +577,34 @@ def main():
     if (small_dataset):
         # if(df_links_joined_one != None):
         #     df_links_joined_one
-        df_meta.to_csv("../data/movielens/small/df_movies.csv")
+        df_meta.to_csv("../data/generated/df_movies_cleaned.csv")
         save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
     else:
-        df_meta.to_csv("../data/movielens/large/df_movies.csv")
+        df_meta.to_csv("../data/generated/df_movies_cleaned.csv")
     print('<----------- Processing finished ----------->')
 
+def clean_movies(df_movies: pd.DataFrame):
+    # clean data
+    # df_movies = pd.read_csv('../data/generated/df_movies.csv')
+
+    print('Removing data with more than 80% holding nans..')
+    print('Shape before cleaning:{}'.format(df_movies.shape))
+    df_cleaned = df_movies.dropna(axis=1, how='all')
+    print('Sum of isNull for all columns: ', df_cleaned.isnull().sum())
+    df_cleaned_two = df_cleaned.loc[:, df_cleaned.isnull().sum() < 0.8 * df_cleaned.shape[
+        0]]  # ist asks: Which columns have less nans than 80% of the data? And those you have to keep
+    print('Shape after cleaning is done: {}'.format(df_cleaned_two.shape))
+
+    print('Columns before renaming: {}', df_cleaned_two.columns)
+    df = janitor.clean_names(df_cleaned_two)
+    print('Columns after renaming: {}', df.columns.columns)
+    return df
+
+    # df.to_csv('../data/generated/df_movies_cleaned.csv')
 if __name__ == '__main__':
     # main()
 
-    #clean data
-    print('Removing data with more than 80% holding nans..')
-    df_movies = pd.read_csv('../data/generated/df_movies.csv')
-    print('Shape:{}'.format(df_movies.shape))
-    df_cleaned = df_movies.dropna(axis=1, how='all')
-    print('Sum of isNull for all columns: ',df_cleaned.isnull().sum() )
-    df_cleaned_two = df_cleaned.loc[:, df_cleaned.isnull().sum() < 0.8 * df_cleaned.shape[0]]#ist asks: Which columns have less nans than 80% of the data? And those you have to keep
-    print('Shape: {}'.format(df_cleaned_two.shape))
-
-    print('columns: {}', df_cleaned_two.columns)
-    df = janitor.clean_names(df_cleaned_two)
-    print('columns: {}', df.columns)
-    df.to_csv('../data/generated/df_movies_cleaned.csv')
-
-
-
-    print('fo'
-    )
+    dct_attribute_distribution = compute_relative_frequency(pd.read_csv('../data/generated/df_movies_cleaned.csv'))
+    save_dict_as_json(dct_attribute_distribution, 'attribute_distribution.json')
 
     #%%
