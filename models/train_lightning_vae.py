@@ -9,6 +9,7 @@ import recmetrics
 # import matplotlib.pyplot as plt
 from surprise import Reader, SVD, Dataset
 # from surprise.model_selection import train_test_split
+import ast
 
 import argparse
 import torch
@@ -129,6 +130,7 @@ def manual_create_user_item_matrix(df, simplified_rating: bool):
 class VAE(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
+        self.avg_mce = 0.0
         self.train_dataset = None
         self.test_dataset = None
         self.test_size = kwargs["test_size"]
@@ -226,9 +228,10 @@ class VAE(pl.LightningModule):
         recon_batch, mu, logvar = model(ts_batch_user_features)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies).item()
         batch_mce = mce_batch(model, ts_batch_user_features, k=1)
+        # mean_mce = { for single_mce in batch_mce}
         loss = batch_loss / len(ts_batch_user_features)
 
-        return {'test_loss': batch_loss}
+        return {'test_loss': batch_loss, 'mce': batch_mce}
 
         # test_loss /= len(test_loader.dataset)
         # print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -236,39 +239,89 @@ class VAE(pl.LightningModule):
     def test_epoch_end(self, outputs):
         # avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
+        ls_mce = [(x['mce']) for x in outputs]
+        avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
         tensorboard_logs = {'test_loss': avg_loss}
-        return {'test_loss': avg_loss, 'test_log': tensorboard_logs}
+        self.avg_mce = avg_mce
+
+        return {'test_loss': avg_loss, 'test_log': tensorboard_logs}#, , 'mce':avg_mce
 
 
 def load_json_as_dict(name):
     with open('../data/generated/' + name, 'r') as file:
         id2names = json.load(file)
         return id2names
+def my_eval(expression):
+    try:
+        return ast.literal_eval(str(expression))
+    except SyntaxError: #e.g. a ":" or "(", which is interpreted by eval as command
+            return [expression]
+    except ValueError: #e.g. an entry is nan, in that case just return an empty string
+        return ''
 
-def mce_relative_frequency(y, y_hat_w_metadata):
+def mce_relative_frequency(y_hat, y_hat_latent):
     dct_attribute_distribution = load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
     # dct_dist = pickle.load(movies_distribution)
 
     dct_mce = defaultdict(float)
-    for idx_vector in range(y.shape[0]):
-        for attribute in y_hat_w_metadata:
-            if(attribute not in ['Unnamed: 0', 'unnamed_0']):
-                if(y.loc[idx_vector, attribute] == y_hat_w_metadata.loc[idx_vector, attribute]):
-                    dct_mce[attribute] = 1
-                else:
-                    characteristic = y_hat_w_metadata[attribute].value
-                    relative_frequency = dct_attribute_distribution[attribute]['relative'][characteristic]
-                    dct_mce[attribute] = relative_frequency
-                    print('Attribute: {}, Relative frequency:{}'.format(attribute, relative_frequency))
+    for idx_vector in range(y_hat.shape[0]):
+        for attribute in y_hat:
+            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline']):
+                ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
+                ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
+                mean = 0
+                cnt_same = 0
+                mce=0
+                try:
+                    #Two cases: Either cell contains multiple values, than it is a list
+                    #or it contains a single but not in a list. In that case put it in a list
+                    if(type(ls_y_latent_attribute_val) is not list):
+                        ls_y_latent_attribute_val = [ls_y_latent_attribute_val]
+                        ls_y_attribute_val =[ls_y_attribute_val]
+
+                    #Go through elements of a cell
+                    for value in ls_y_latent_attribute_val: #same as characteristic
+                        if(value in ls_y_attribute_val):
+                            # mean += 1
+                            mce +=1
+                            # ls_y_latent_attribute_val.pop(value)
+
+                        else:
+                            # characteristic = y_hat.loc[idx_vector, attribute]
+                            relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
+                            mce += relative_frequency
+                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
+                    #if no values are presented in the current cell than assign highest error
+                    if(len(ls_y_latent_attribute_val)==0):
+                        mce =1
+                    else:
+                        mce = mce/len(ls_y_latent_attribute_val)
+                    # print('Attribute: {}, mce:{}'.format(attribute, mce))
+
+                    dct_mce[attribute] = mce
+                except (KeyError, TypeError, ZeroDivisionError) as e:
+                    print("Error Value:{}".format(value))
 
     return dct_mce
 
+def calculate_mean_of_ls_dict(ls_dict: list):
+    dct_sum = defaultdict(float)
+
+    import numpy as np
+
+    for dict in ls_dict:
+        for key, val in dict.items():
+            dct_sum[key] += val
+    np_mean_vals = np.array(list(dct_sum.values())) / len(ls_dict)
+    dct_mean = list(zip(dct_sum.keys(), np_mean_vals))
+    print(dct_mean)
+    return dct_mean
 
 def match_metadata(indezes, df_links):
     # ls_indezes = y_hat.values.index
     #TODO Source read_csv out
     df_links = pd.read_csv('../data/movielens/small/links.csv')
-    df_movies = pd.read_csv('../data/generated/df_movies_cleaned.csv')
+    df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
     # df_imdb_ids = df_links.loc[df_links['movieId'].isin(indezes),['imdbId']] #dataframe
 
     global dct_index2itemId
@@ -279,7 +332,7 @@ def match_metadata(indezes, df_links):
     sr_imdb_ids = df_links[df_links["movieId"].isin(ls_ml_ids)]['imdbId'] #If I want to keep the
     imdb_ids = sr_imdb_ids.array
 
-    print('no of imdbIds:{}, no of indezes:{}'.format(len(imdb_ids), len(indezes)))
+    # print('no of imdbIds:{}, no of indezes:{}'.format(len(imdb_ids), len(indezes)))
     #TODO Fill df_movies with MovieLensId or download large links.csv
     if(len(imdb_ids) < len(indezes)):
         print('There were items recommended that have not been seen by any users in the dataset. Trained on 9725 movies but 193610 are available so df_links has only 9725 to pick from')
@@ -292,22 +345,22 @@ def match_metadata(indezes, df_links):
 
     return
 #MCE is calculated for each category
-def mce_batch(model, ts_batch_features, k):
+def mce_batch(model, ts_batch_features, k=0):
     # hold n neurons of hidden layer
     # change 1 neuron
     ls_y_hat, mu, logvar = model(ts_batch_features)
     ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features)
     # mce()
     df_links = None
-    ls_idx_y = (-ts_batch_features).argsort()[:k]
-    ls_idx_yhat = (-ls_y_hat).argsort()[:k]  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
-    ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()[:k]  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+    ls_idx_y = (-ts_batch_features).argsort()
+    ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+    ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
     mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
     ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
 
 
     #Collect the index of the items that were seen
-    ls_non_zeroes = torch.nonzero(ts_batch_features, as_tuple=True)
+    ls_non_zeroes = torch.nonzero(ls_idx_yhat, as_tuple=True)#ts_batch_features
     tpl_users = ls_non_zeroes[0]
     tpl_items = ls_non_zeroes[1]
     dct_seen_items = defaultdict(list)
@@ -324,16 +377,27 @@ def mce_batch(model, ts_batch_features, k):
 
 
     #Go through the list of list of the predicted batch
-    for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
+    # for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
+    ls_dct_mce = []
+    for user_idx in range(len(ls_idx_yhat)):
         y_hat = ls_y_hat[user_idx]
-        no_of_seen_items = len(ls_seen_items) #TODO Add k
-        y_hat_k_highest = (-y_hat).argsort()[:no_of_seen_items] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+        y_hat_latent = ls_y_hat_latent_changed[user_idx]
+
+        if(k == 0):
+            k = 10#len(ls_seen_items) #no_of_seen_items  TODO Add k
+
+        y_hat_k_highest = (-y_hat).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+        y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
 
         y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), df_links)
-        y_w_metadata = match_metadata(ls_seen_items, df_links)
+        y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), df_links)
 
-        single_mce = mce_relative_frequency(y_w_metadata, y_hat_w_metadata) #mce for n columns
+        single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata) #mce for n columns
+        ls_dct_mce.append(single_mce)
+
         print(single_mce)
+    mce_mean = dict(calculate_mean_of_ls_dict(ls_dct_mce))
+    return mce_mean
 
 
 
@@ -403,7 +467,7 @@ import recmetrics
 #%%
 model_params = {"simplified_rating": True,
                 "small_dataset": True,
-                "test_size": 0.33} #TODO Change test size to 0.33
+                "test_size": 0.02} #TODO Change test size to 0.33
 # model_params.update(args.__dict__)
 # print(**model_params)
 
@@ -414,22 +478,22 @@ merged_params = (lambda first_dict, second_dict: {**first_dict, **second_dict})(
 #%%
 
 #
-# neptune_logger = NeptuneLogger(
-#     #api_key="key",
-#     project_name="paer/recommender-xai",
-#     experiment_name="neptune-logs",  # Optional,
-#     params = merged_params,
-#     # params={"max_epochs": 1,
-#     #         "batch_size": 32},  # Optional,
-#     close_after_fit=True, #must be False if test method should be logged
-#     tags=["pytorch-lightning", "vae","unique-movies-small"]  # Optional,
-#
-# )
+neptune_logger = NeptuneLogger(
+    #api_key="key",
+    project_name="paer/recommender-xai",
+    experiment_name="neptune-logs",  # Optional,
+    params = merged_params,
+    # params={"max_epochs": 1,
+    #         "batch_size": 32},  # Optional,
+    close_after_fit=False, #must be False if test method should be logged
+    tags=["pytorch-lightning", "vae","unique-movies-small"]  # Optional,
+
+)
 
 trainer = pl.Trainer.from_argparse_args(args,
                                         #max_epochs=1, automatically processed by Pytorch Light
-                                        # logger=neptune_logger,
-                                        logger=False,
+                                        logger=neptune_logger,
+                                        # logger=False,
                                         checkpoint_callback = False,
                                         gpus=0
                                         #num_nodes=4
@@ -449,7 +513,54 @@ model = VAE(**model_params)
 print('------ Start Training ------')
 trainer.fit(model)
 print('------ Start Test ------')
-trainer.test(model) #The test loop will not be used until you call.
+results = trainer.test(model) #The test loop will not be used until you call.
+print(results)
+avg_mce = model.avg_mce
+import seaborn as sns
+ls_x=[]
+ls_y=[]
+
+for key, val in avg_mce.items():
+    neptune_logger.log_metric('MCE_' + key, val)
+    ls_x.append(key)
+    ls_y.append(val)
+plt.figure()
+fig, ax = plt.subplots(figsize=(20, 12))
+
+
+sns_plot = sns.barplot(x=ls_x, y=ls_y)
+fig = sns_plot.get_figure()
+# fig.set_xticklabels(rotation=45)
+plt.xticks(rotation=70)
+plt.tight_layout()
+fig.savefig("./results/images/mce.png")
+
+# import plotly.graph_objs as go
+#
+# data = [go.Bar(
+#    x = ls_x,
+#    y = ls_y
+# )]
+# fig = go.Figure(data=data)
+# neptune_logger.create
+# from neptunecontrib.api import log_chart
+# log_chart(name='plotly_figure', chart=fig)
+# neptune_logger.log_image('MCEs',fig)
+neptune_logger.experiment.log_image('MCEs',"./results/images/mce.png")
+
+neptune_logger.experiment.log_artifact("./results/images/mce.png")
+print('Test done')
+
 
 #%%
 # plot_ae_img(batch_features,test_loader)
+ls_dct_test =[{'a': 5},{'b': 10}]
+ls_x=[]
+ls_y=[]
+for mce in ls_dct_test:
+    for key, val in mce.items():
+        ls_x.append(key)
+        ls_y.append(val)
+
+
+sns.barplot(x=ls_x, y=ls_y)
