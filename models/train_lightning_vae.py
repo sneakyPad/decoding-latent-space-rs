@@ -149,6 +149,7 @@ class VAE(pl.LightningModule):
         self.fc3 = nn.Linear(in_features=20, out_features=400) #hidden layer
         self.fc4 = nn.Linear(in_features=400, out_features=self.unique_movies)
 
+        self.z = None
         # self.save_hyperparameters()
 
     def encode(self, x):
@@ -164,9 +165,18 @@ class VAE(pl.LightningModule):
         h3 = F.relu(self.fc3(z))
         return torch.sigmoid(self.fc4(h3))
 
-    def forward(self, x):
-        mu, logvar = self.encode(x.view(-1, self.unique_movies))
-        z = self.reparameterize(mu, logvar)
+    def forward(self, x, **kwargs):
+        #Si
+
+        if(kwargs):
+            z = kwargs['z']
+            mu = kwargs['mu']
+            logvar = kwargs['logvar']
+        else:
+            mu, logvar = self.encode(x.view(-1, self.unique_movies))
+            z = self.reparameterize(mu, logvar)
+            self.z = z
+
         return self.decode(z), mu, logvar
 
     def load_dataset(self):
@@ -349,7 +359,8 @@ def mce_batch(model, ts_batch_features, k=0):
     # hold n neurons of hidden layer
     # change 1 neuron
     ls_y_hat, mu, logvar = model(ts_batch_features)
-    ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features)
+    z = model.z
+    ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features, z=z, mu=mu,logvar=logvar)
     # mce()
     df_links = None
     ls_idx_y = (-ts_batch_features).argsort()
@@ -427,13 +438,14 @@ def loss_function(recon_x, x, mu, logvar, unique_movies):
 
 train_dataset = None
 test_dataset = None
+max_epochs = 40
 #%%
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=1, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--max_epochs', type=int, default=1, metavar='N',
+parser.add_argument('--max_epochs', type=int, default=max_epochs, metavar='N',
                     help='number of max epochs to train (default: 15)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='enables CUDA training')
@@ -467,7 +479,7 @@ import recmetrics
 #%%
 model_params = {"simplified_rating": True,
                 "small_dataset": True,
-                "test_size": 0.02} #TODO Change test size to 0.33
+                "test_size": 0.1} #TODO Change test size to 0.33
 # model_params.update(args.__dict__)
 # print(**model_params)
 
@@ -533,7 +545,7 @@ fig = sns_plot.get_figure()
 # fig.set_xticklabels(rotation=45)
 plt.xticks(rotation=70)
 plt.tight_layout()
-fig.savefig("./results/images/mce.png")
+fig.savefig("./results/images/mce_epochs_"+str(max_epochs)+".png")
 
 # import plotly.graph_objs as go
 #
@@ -546,9 +558,9 @@ fig.savefig("./results/images/mce.png")
 # from neptunecontrib.api import log_chart
 # log_chart(name='plotly_figure', chart=fig)
 # neptune_logger.log_image('MCEs',fig)
-neptune_logger.experiment.log_image('MCEs',"./results/images/mce.png")
+neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
 
-neptune_logger.experiment.log_artifact("./results/images/mce.png")
+neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
 print('Test done')
 
 
