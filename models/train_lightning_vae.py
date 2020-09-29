@@ -1,15 +1,22 @@
+# pip install pytorch-lightning
+# pip install neptune-client
+
+
 from __future__ import print_function
 import torch, torch.nn as nn, torchvision, torch.optim as optim
-import matplotlib.pyplot as plt
 import numpy as np
+
 import pandas as pd
+
+from pytorch_lightning.logging.neptune import NeptuneLogger
+
 from pytorch_lightning import Trainer
 from sklearn.model_selection import train_test_split
 import recmetrics
-# import matplotlib.pyplot as plt
 from surprise import Reader, SVD, Dataset
 # from surprise.model_selection import train_test_split
 import ast
+from collections import defaultdict
 
 import argparse
 import torch
@@ -19,9 +26,10 @@ from torch.nn import functional as F
 from torch.optim.lr_scheduler import StepLR
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
-import json
 
 import pytorch_lightning as pl
+import utils.utils as utils
+
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -45,12 +53,7 @@ import pytorch_lightning as pl
 
 seed = 42
 torch.manual_seed(seed)
-from collections import defaultdict
 
-#%%
-# pip install pytorch-lightning
-# pip install neptune-client
-#%%
 
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
@@ -134,6 +137,7 @@ class VAE(pl.LightningModule):
         self.train_dataset = None
         self.test_dataset = None
         self.test_size = kwargs["test_size"]
+        self.no_latent_factors = kwargs["latent_dim"]
         self.max_unique_movies = 0
         self.unique_movies =0
         self.np_user_item = None
@@ -144,12 +148,17 @@ class VAE(pl.LightningModule):
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
         self.fc1 = nn.Linear(in_features=self.unique_movies, out_features=400) #input
-        self.fc21 = nn.Linear(in_features=400, out_features=20) #encoder mean
-        self.fc22 = nn.Linear(in_features=400, out_features=20) #encoder variance
-        self.fc3 = nn.Linear(in_features=20, out_features=400) #hidden layer
+        self.fc21 = nn.Linear(in_features=400, out_features=self.no_latent_factors) #encoder mean
+        self.fc22 = nn.Linear(in_features=400, out_features=self.no_latent_factors) #encoder variance
+        self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=400) #hidden layer
         self.fc4 = nn.Linear(in_features=400, out_features=self.unique_movies)
 
+
         self.z = None
+        self.np_z = np.empty((0, self.no_latent_factors))#self.test_dataset.shape[0]
+        self.np_mu = np.empty((0, self.no_latent_factors))
+        self.np_logvar = np.empty((0, self.no_latent_factors))
+
         # self.save_hyperparameters()
 
     def encode(self, x):
@@ -165,6 +174,11 @@ class VAE(pl.LightningModule):
         h3 = F.relu(self.fc3(z))
         return torch.sigmoid(self.fc4(h3))
 
+    def compute_z(self, mu, logvar):
+
+        z = self.reparameterize(mu, logvar)
+        return z
+
     def forward(self, x, **kwargs):
         #Si
 
@@ -174,7 +188,7 @@ class VAE(pl.LightningModule):
             logvar = kwargs['logvar']
         else:
             mu, logvar = self.encode(x.view(-1, self.unique_movies))
-            z = self.reparameterize(mu, logvar)
+            z = self.compute_z(mu, logvar)
             self.z = z
 
         return self.decode(z), mu, logvar
@@ -235,7 +249,24 @@ class VAE(pl.LightningModule):
         # with torch.no_grad():
         #     for i, data in enumerate(test_loader):
 
-        recon_batch, mu, logvar = model(ts_batch_user_features)
+        recon_batch, ts_mu_chunk, ts_logvar_chunk = model(ts_batch_user_features)
+        ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
+        # np_z_chunk = np.asarray(ls_z)
+        # np_mu_chunk = np.asarray(mu)
+        # np_logvar_chunk = np.asarray(logvar)
+
+        # if(self.np_z == None):
+        #     self.np_z = np_z_chunk
+            # self.np_z = np.zeros([self.test_dataset.shape[0], self.no_latent_factors])
+        # else:
+        #     self.np_z = np.concatenate(self.np_z, np_z_chunk)
+        self.np_z = np.append(self.np_z, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
+        self.np_mu = np.append(self.np_mu, np.asarray(ts_mu_chunk), axis =0)
+        self.np_logvar = np.append(self.np_logvar, np.asarray(ts_logvar_chunk), axis =0)
+        # self.np_z = np.vstack((self.np_z, np_z_chunk))
+
+
+
         batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies).item()
         batch_mce = mce_batch(model, ts_batch_user_features, k=1)
         # mean_mce = { for single_mce in batch_mce}
@@ -257,10 +288,7 @@ class VAE(pl.LightningModule):
         return {'test_loss': avg_loss, 'test_log': tensorboard_logs}#, , 'mce':avg_mce
 
 
-def load_json_as_dict(name):
-    with open('../data/generated/' + name, 'r') as file:
-        id2names = json.load(file)
-        return id2names
+
 def my_eval(expression):
     try:
         return ast.literal_eval(str(expression))
@@ -270,7 +298,7 @@ def my_eval(expression):
         return ''
 
 def mce_relative_frequency(y_hat, y_hat_latent):
-    dct_attribute_distribution = load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
+    dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
     # dct_dist = pickle.load(movies_distribution)
 
     dct_mce = defaultdict(float)
@@ -316,8 +344,6 @@ def mce_relative_frequency(y_hat, y_hat_latent):
 
 def calculate_mean_of_ls_dict(ls_dict: list):
     dct_sum = defaultdict(float)
-
-    import numpy as np
 
     for dict in ls_dict:
         for key, val in dict.items():
@@ -406,7 +432,7 @@ def mce_batch(model, ts_batch_features, k=0):
         single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata) #mce for n columns
         ls_dct_mce.append(single_mce)
 
-        print(single_mce)
+        # print(single_mce)
     mce_mean = dict(calculate_mean_of_ls_dict(ls_dct_mce))
     return mce_mean
 
@@ -425,20 +451,9 @@ def loss_function(recon_x, x, mu, logvar, unique_movies):
     return BCE + KLD
 
 
-    #Input: All seen items of a user as vector
-    # def prediction_user(self, user_feature):
-    #     user_preds = self.forward(user_feature)
-    #
-    #     return user_preds
-    #
-    # #Input: One Hot Encoding
-    # def prediction_single(self, one_hot_movie_id):
-    #     pred = self.forward(one_hot_movie_id)
-    #     return pred
-
 train_dataset = None
 test_dataset = None
-max_epochs = 40
+max_epochs = 1
 #%%
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -460,12 +475,6 @@ torch.manual_seed(100)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
 
 
-#%%
-
-from torch.utils.tensorboard import SummaryWriter
-
-from pytorch_lightning.logging.neptune import NeptuneLogger
-
 # default `log_dir` is "runs" - we'll be more specific here
 # writer = SummaryWriter('runs/vae_1')
 # dct_hyperparam = {
@@ -479,7 +488,8 @@ import recmetrics
 #%%
 model_params = {"simplified_rating": True,
                 "small_dataset": True,
-                "test_size": 0.1} #TODO Change test size to 0.33
+                "test_size": 0.1,#TODO Change test size to 0.33
+                "latent_dim":20}
 # model_params.update(args.__dict__)
 # print(**model_params)
 
@@ -506,6 +516,7 @@ trainer = pl.Trainer.from_argparse_args(args,
                                         #max_epochs=1, automatically processed by Pytorch Light
                                         logger=neptune_logger,
                                         # logger=False,
+                                        row_log_interval = 5,
                                         checkpoint_callback = False,
                                         gpus=0
                                         #num_nodes=4
@@ -515,54 +526,28 @@ trainer = pl.Trainer.from_argparse_args(args,
 
 
 #%%
-from torchsummaryX import summary
-import hiddenlayer as hl
 print('<---------------------------------- VAE Training ---------------------------------->')
 print("Running with the following configuration: \n{}".format(args))
 model = VAE(**model_params)
-# print(model)
-example_input = torch.zeros((1, 9724))
-summary(model, example_input)
+utils.print_nn_summary(model)
+
 print('------ Start Training ------')
 trainer.fit(model)
+
 print('------ Start Test ------')
 results = trainer.test(model) #The test loop will not be used until you call.
 print(results)
-avg_mce = model.avg_mce
-import seaborn as sns
-ls_x=[]
-ls_y=[]
 
-for key, val in avg_mce.items():
-    neptune_logger.log_metric('MCE_' + key, val)
-    ls_x.append(key)
-    ls_y.append(val)
-plt.figure()
-fig, ax = plt.subplots(figsize=(20, 12))
+utils.plot_mce(model, neptune_logger, max_epochs)
 
-
-sns_plot = sns.barplot(x=ls_x, y=ls_y)
-fig = sns_plot.get_figure()
-# fig.set_xticklabels(rotation=45)
-plt.xticks(rotation=70)
-plt.tight_layout()
-fig.savefig("./results/images/mce_epochs_"+str(max_epochs)+".png")
-
-# import plotly.graph_objs as go
-#
-# data = [go.Bar(
-#    x = ls_x,
-#    y = ls_y
-# )]
-# fig = go.Figure(data=data)
-# neptune_logger.create
-# from neptunecontrib.api import log_chart
-# log_chart(name='plotly_figure', chart=fig)
-# neptune_logger.log_image('MCEs',fig)
 neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
-
 neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
+
 print('Test done')
+
+
+#%%
+
 
 
 #%%
@@ -575,5 +560,5 @@ for mce in ls_dct_test:
         ls_x.append(key)
         ls_y.append(val)
 
-
+import seaborn as sns
 sns.barplot(x=ls_x, y=ls_y)
