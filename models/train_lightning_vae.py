@@ -274,14 +274,14 @@ class VAE(pl.LightningModule):
         # self.np_z = np.vstack((self.np_z, np_z_chunk))
 
 
-
+        batch_rmse, batch_mse = utils.calculate_metrics(ts_batch_user_features,recon_batch)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies).item()
         batch_mce = mce_batch(model, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss / len(ts_batch_user_features)
 
-        return {'test_loss': batch_loss, 'mce': batch_mce}
+        return {'test_loss': batch_loss, 'mce': batch_mce, 'rmse': batch_rmse, 'mse': batch_mse}
 
         # test_loss /= len(test_loader.dataset)
         # print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -289,12 +289,19 @@ class VAE(pl.LightningModule):
     def test_epoch_end(self, outputs):
         # avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
+
         ls_mce = [(x['mce']) for x in outputs]
         avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
+
+        avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
+        avg_mse = np.array([x['mse'] for x in outputs]).mean()
+
         tensorboard_logs = {'test_loss': avg_loss}
+        neptune_logger.experiment.log_metric('rmse', avg_rmse)
+
         self.avg_mce = avg_mce
 
-        return {'test_loss': avg_loss, 'test_log': tensorboard_logs}#, , 'mce':avg_mce
+        return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse}#, , 'mce':avg_mce
 
 
 
@@ -470,7 +477,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=1, metavar='N',
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--max_epochs', type=int, default=max_epochs, metavar='N',
                         help='number of max epochs to train (default: 15)')
@@ -478,7 +485,7 @@ if __name__ == '__main__':
                         help='enables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=1, metavar='N',
                         help='how many batches to wait before logging training status')
     args = parser.parse_args()
 
@@ -489,7 +496,7 @@ if __name__ == '__main__':
     #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.03,#TODO Change test size to 0.33
+                    "test_size": 0.2,#TODO Change test size to 0.33
                     "latent_dim":20}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -498,26 +505,30 @@ if __name__ == '__main__':
     # print(merged_params)
 
     neptune_logger = NeptuneLogger(
-        #api_key="key",
+        # api_key="api_key",
         project_name="paer/recommender-xai",
-        experiment_name="neptune-logs",  # Optional,
-        params = merged_params,
-        # params={"max_epochs": 1,
-        #         "batch_size": 32},  # Optional,
+        experiment_name="default",  # Optional,
+        # params = merged_params,
+        params={"max_epochs": 1,
+                "batch_size": 32},  # Optional,
         close_after_fit=False, #must be False if test method should be logged
         tags=["pytorch-lightning", "vae","unique-movies-small"]  # Optional,
 
     )
 
-    trainer = pl.Trainer.from_argparse_args(args,
-                                            #max_epochs=1, automatically processed by Pytorch Light
-                                            logger=neptune_logger,
-                                            # logger=False,
-                                            row_log_interval = 5,
-                                            checkpoint_callback = False,
-                                            gpus=0
-                                            #num_nodes=4
-    )
+    trainer = pl.Trainer(max_epochs=2,
+                         logger=neptune_logger
+
+                         )
+    # trainer = pl.Trainer.from_argparse_args(#args,
+    #                                         #max_epochs=1, automatically processed by Pytorch Light
+    #                                         logger=neptune_logger,
+    #                                         # logger=False,
+    #                                         # row_log_interval = 5,
+    #                                         # checkpoint_callback = False,
+    #                                         # gpus=0
+    #                                         #num_nodes=4
+    # )
 
     #%%
     print('<---------------------------------- VAE Training ---------------------------------->')
@@ -529,8 +540,8 @@ if __name__ == '__main__':
     trainer.fit(model)
 
     print('------ Start Test ------')
-    results = trainer.test(model) #The test loop will not be used until you call.
-    print(results)
+    trainer.test(model) #The test loop will not be used until you call.
+    # print(results)
 
     # %%
     utils.plot_results(model, neptune_logger, max_epochs)

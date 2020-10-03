@@ -612,7 +612,7 @@ def clean_movies(df_movies: pd.DataFrame):
 
     # df.to_csv('../data/generated/df_movies_cleaned.csv')
 if __name__ == '__main__':
-    # main()
+    main()
     # df_movies = pd.read_csv('../data/generated/df_movies_cleaned.csv')
     # df = clean_movies(df_movies)
     # df =df.remove_columns(['unnamed_0','unnamed_0'])
