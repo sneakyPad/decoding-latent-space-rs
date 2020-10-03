@@ -48,6 +48,9 @@ def load_json_as_dict(name):
         id2names = json.load(file)
         return id2names
 
+def save_dict_as_json(dct, name):
+    with open('../data/generated/' + name, 'w') as file:
+        json.dump(dct, file, indent=4, sort_keys=True)
 
 def ls_columns_to_dfrows(ls_val, column_base_name):
     print(ls_val.shape)
@@ -112,11 +115,11 @@ def plot_results(model, neptune_logger, max_epochs):
     sns.set_theme(style="ticks")
 
     # Apply PCA on Data an plot it afterwards
-    np_z_pca = apply_pca(model.np_z)
+    np_z_pca = apply_pca(model.np_z_test)
     plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors))
 
     # Plot the probability distribution of latent layer
-    df_melted = ls_columns_to_dfrows(ls_val=model.np_z, column_base_name="LF: ")
+    df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ")
     plot_distribution(df_melted, 'Probability Distribution of Laten Factors (z)')
     plot_catplot(df_melted, "Latent Factors")
     plot_swarmplot(df_melted, "Latent Factors")
