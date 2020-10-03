@@ -151,7 +151,7 @@ class VAE(pl.LightningModule):
         self.np_user_item = None
         self.small_dataset = kwargs["small_dataset"]
         self.simplified_rating = kwargs["simplified_rating"]
-
+        self.max_epochs = kwargs["max_epochs"]
         self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
@@ -163,9 +163,13 @@ class VAE(pl.LightningModule):
 
 
         self.z = None
-        self.np_z = np.empty((0, self.no_latent_factors))#self.test_dataset.shape[0]
-        self.np_mu = np.empty((0, self.no_latent_factors))
-        self.np_logvar = np.empty((0, self.no_latent_factors))
+        self.np_z_test = np.empty((0, self.no_latent_factors))#self.test_dataset.shape[0]
+        self.np_mu_test = np.empty((0, self.no_latent_factors))
+        self.np_logvar_test = np.empty((0, self.no_latent_factors))
+
+        self.np_z_train = np.empty((0, self.no_latent_factors))  # self.test_dataset.shape[0]
+        self.np_mu_train = np.empty((0, self.no_latent_factors))
+        self.np_logvar_train = np.empty((0, self.no_latent_factors))
 
         # self.save_hyperparameters()
 
@@ -237,11 +241,20 @@ class VAE(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         print('train step')
         ts_batch_user_features = batch
-        recon_batch, mu, logvar = self.forward(ts_batch_user_features)  # sample data
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, mu, logvar, unique_movies)
+        recon_batch, ts_mu_chunk, ts_logvar_chunk = self.forward(ts_batch_user_features)  # sample data
+        if(self.current_epoch == self.max_epochs-1):
+            print("Last rounf yipi")
+            ls_grad_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
+            self.np_z_train = np.append(self.np_z_train, np.asarray(ls_grad_z.tolist()), axis=0) #TODO Describe in thesis that I get back a grad object instead of a pure tensor as it is in the test method since we are in the training method.
+            self.np_mu_train = np.append(self.np_mu_train, np.asarray(ts_mu_chunk.tolist()), axis=0)
+            self.np_logvar_train = np.append(self.np_logvar_train, np.asarray(ts_logvar_chunk.tolist()), axis=0)
+
+
+        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies)
         loss = batch_loss/len(ts_batch_user_features)
         logs = {'loss': loss}
         return {'loss': loss, 'log': logs}
+
 
 
     # def validation_step(self, batch, batch_idx):
@@ -268,9 +281,9 @@ class VAE(pl.LightningModule):
             # self.np_z = np.zeros([self.test_dataset.shape[0], self.no_latent_factors])
         # else:
         #     self.np_z = np.concatenate(self.np_z, np_z_chunk)
-        self.np_z = np.append(self.np_z, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
-        self.np_mu = np.append(self.np_mu, np.asarray(ts_mu_chunk), axis =0)
-        self.np_logvar = np.append(self.np_logvar, np.asarray(ts_logvar_chunk), axis =0)
+        self.np_z_test = np.append(self.np_z_test, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
+        self.np_mu_test = np.append(self.np_mu_test, np.asarray(ts_mu_chunk), axis =0)
+        self.np_logvar_test = np.append(self.np_logvar_test, np.asarray(ts_logvar_chunk), axis =0)
         # self.np_z = np.vstack((self.np_z, np_z_chunk))
 
 
@@ -472,7 +485,7 @@ if __name__ == '__main__':
 
     train_dataset = None
     test_dataset = None
-    max_epochs = 1
+    max_epochs = 5
 
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -497,7 +510,8 @@ if __name__ == '__main__':
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
                     "test_size": 0.2,#TODO Change test size to 0.33
-                    "latent_dim":20}
+                    "latent_dim":20,
+                    "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
 
@@ -508,27 +522,29 @@ if __name__ == '__main__':
         # api_key="api_key",
         project_name="paer/recommender-xai",
         experiment_name="default",  # Optional,
-        # params = merged_params,
-        params={"max_epochs": 1,
-                "batch_size": 32},  # Optional,
+        params = merged_params,
+        # params={"max_epochs": 1,
+        #         "batch_size": 32},  # Optional,
         close_after_fit=False, #must be False if test method should be logged
         tags=["pytorch-lightning", "vae","unique-movies-small"]  # Optional,
 
     )
 
-    trainer = pl.Trainer(max_epochs=2,
-                         logger=neptune_logger
-
-                         )
-    # trainer = pl.Trainer.from_argparse_args(#args,
-    #                                         #max_epochs=1, automatically processed by Pytorch Light
-    #                                         logger=neptune_logger,
-    #                                         # logger=False,
-    #                                         # row_log_interval = 5,
-    #                                         # checkpoint_callback = False,
-    #                                         # gpus=0
-    #                                         #num_nodes=4
-    # )
+    # trainer = pl.Trainer(max_epochs=2,
+    #                      logger=neptune_logger,
+    #                      weights_summary='full'
+    #
+    #                      )
+    trainer = pl.Trainer.from_argparse_args(args,
+                                            #max_epochs=1, automatically processed by Pytorch Light
+                                            logger=neptune_logger,
+                                            # logger=False,
+                                            # row_log_interval = 5,
+                                            checkpoint_callback = False,
+                                            gpus=0,
+                                            weights_summary='full'
+                                            #num_nodes=4
+    )
 
     #%%
     print('<---------------------------------- VAE Training ---------------------------------->')
@@ -538,7 +554,11 @@ if __name__ == '__main__':
 
     print('------ Start Training ------')
     trainer.fit(model)
-
+    print('Shape np_z_train: {}'.format(model.np_z_train.shape))
+    z_mean_train = model.np_z_train.mean(axis=0)
+    z_min_train = model.np_z_train.min(axis=0)
+    z_max_train = model.np_z_train.max(axis=0)
+    print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
     print('------ Start Test ------')
     trainer.test(model) #The test loop will not be used until you call.
     # print(results)
