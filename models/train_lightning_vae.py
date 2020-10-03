@@ -261,6 +261,12 @@ class VAE(pl.LightningModule):
     #     return 0
     #
     def test_step(self, batch, batch_idx):
+        #TODO needs to be outside of test loop
+        print('Shape np_z_train: {}'.format(self.np_z_train.shape))
+        self.z_mean_train = self.np_z_train.mean(axis=0)
+        self.z_min_train = self.np_z_train.min(axis=0)
+        self.z_max_train = self.np_z_train.max(axis=0)
+
         print('test step')
 
         model.eval()
@@ -272,15 +278,7 @@ class VAE(pl.LightningModule):
 
         recon_batch, ts_mu_chunk, ts_logvar_chunk = model(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
-        # np_z_chunk = np.asarray(ls_z)
-        # np_mu_chunk = np.asarray(mu)
-        # np_logvar_chunk = np.asarray(logvar)
 
-        # if(self.np_z == None):
-        #     self.np_z = np_z_chunk
-            # self.np_z = np.zeros([self.test_dataset.shape[0], self.no_latent_factors])
-        # else:
-        #     self.np_z = np.concatenate(self.np_z, np_z_chunk)
         self.np_z_test = np.append(self.np_z_test, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
         self.np_mu_test = np.append(self.np_mu_test, np.asarray(ts_mu_chunk), axis =0)
         self.np_logvar_test = np.append(self.np_logvar_test, np.asarray(ts_logvar_chunk), axis =0)
@@ -303,8 +301,9 @@ class VAE(pl.LightningModule):
         # avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
 
-        ls_mce = [(x['mce']) for x in outputs]
-        avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
+        # ls_mce = {x['mce'] for x in outputs}
+        utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json')
+        # avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
 
         avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
         avg_mse = np.array([x['mse'] for x in outputs]).mean()
@@ -312,7 +311,7 @@ class VAE(pl.LightningModule):
         tensorboard_logs = {'test_loss': avg_loss}
         neptune_logger.experiment.log_metric('rmse', avg_rmse)
 
-        self.avg_mce = avg_mce
+        # self.avg_mce = avg_mce
 
         return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse}#, , 'mce':avg_mce
 
@@ -409,61 +408,70 @@ def match_metadata(indezes, df_links):
 
 
     return
+def alter_z(ts_z, latent_factor_position, model):
+    ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position] #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
+    return ts_z
+
 #MCE is calculated for each category
 def mce_batch(model, ts_batch_features, k=0):
+    dct_mce_mean = defaultdict()
     # hold n neurons of hidden layer
     # change 1 neuron
     ls_y_hat, mu, logvar = model(ts_batch_features)
     z = model.z
-    ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features, z=z, mu=mu,logvar=logvar)
-    # mce()
-    df_links = None
-    ls_idx_y = (-ts_batch_features).argsort()
-    ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
-    ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
-    mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
-    ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
+    for latent_factor_position in range(model.no_latent_factors):
+        print("Calculate MCEs for position: {} in vector z".format(latent_factor_position))
+        ts_altered_z = alter_z(z, latent_factor_position, model)
+
+        ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
+        # mce()
+        df_links = None
+        ls_idx_y = (-ts_batch_features).argsort()
+        ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+        ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+        mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
+        ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
 
 
-    #Collect the index of the items that were seen
-    ls_non_zeroes = torch.nonzero(ls_idx_yhat, as_tuple=True)#ts_batch_features
-    tpl_users = ls_non_zeroes[0]
-    tpl_items = ls_non_zeroes[1]
-    dct_seen_items = defaultdict(list)
-    for idx in range(0,len(tpl_users)):
-        user_idx = int(tpl_users[idx])
-        item_idx = int(tpl_items[idx])
-        dct_seen_items[user_idx].append(item_idx)
-        # print(dct_seen_items)
+        #Collect the index of the items that were seen
+        ls_non_zeroes = torch.nonzero(ls_idx_yhat, as_tuple=True)#ts_batch_features
+        tpl_users = ls_non_zeroes[0]
+        tpl_items = ls_non_zeroes[1]
+        dct_seen_items = defaultdict(list)
+        for idx in range(0,len(tpl_users)):
+            user_idx = int(tpl_users[idx])
+            item_idx = int(tpl_items[idx])
+            dct_seen_items[user_idx].append(item_idx)
+            # print(dct_seen_items)
 
-    #TODO Can be slow, find another way
-    # for user_idx, item_idx in ls_indizes_not_null:
-    #     mask_not_null[user_idx][item_idx] = True
-    # mask_not_null = ts_batch_features > 0 TODO This is an alternative to the for loop, test it
+        #TODO Can be slow, find another way
+        # for user_idx, item_idx in ls_indizes_not_null:
+        #     mask_not_null[user_idx][item_idx] = True
+        # mask_not_null = ts_batch_features > 0 TODO This is an alternative to the for loop, test it
 
 
-    #Go through the list of list of the predicted batch
-    # for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
-    ls_dct_mce = []
-    for user_idx in tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
-        y_hat = ls_y_hat[user_idx]
-        y_hat_latent = ls_y_hat_latent_changed[user_idx]
+        #Go through the list of list of the predicted batch
+        # for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
+        ls_dct_mce = []
+        for user_idx in tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
+            y_hat = ls_y_hat[user_idx]
+            y_hat_latent = ls_y_hat_latent_changed[user_idx]
 
-        if(k == 0):
-            k = 10#len(ls_seen_items) #no_of_seen_items  TODO Add k
+            if(k == 0):
+                k = 10#len(ls_seen_items) #no_of_seen_items  TODO Add k
 
-        y_hat_k_highest = (-y_hat).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
-        y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+            y_hat_k_highest = (-y_hat).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+            y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
 
-        y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), df_links)
-        y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), df_links)
+            y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), df_links)
+            y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), df_links)
 
-        single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata) #mce for n columns
-        ls_dct_mce.append(single_mce)
+            single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata) #mce for n columns
+            ls_dct_mce.append(single_mce)
 
-        # print(single_mce)
-    mce_mean = dict(calculate_mean_of_ls_dict(ls_dct_mce))
-    return mce_mean
+            # print(single_mce)
+        dct_mce_mean[latent_factor_position] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
+    return dct_mce_mean
 
 
 
@@ -485,7 +493,7 @@ if __name__ == '__main__':
 
     train_dataset = None
     test_dataset = None
-    max_epochs = 5
+    max_epochs = 2
 
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -509,8 +517,8 @@ if __name__ == '__main__':
     #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.2,#TODO Change test size to 0.33
-                    "latent_dim":20,
+                    "test_size": 0.003,#TODO Change test size to 0.33
+                    "latent_dim":3,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -554,11 +562,8 @@ if __name__ == '__main__':
 
     print('------ Start Training ------')
     trainer.fit(model)
-    print('Shape np_z_train: {}'.format(model.np_z_train.shape))
-    z_mean_train = model.np_z_train.mean(axis=0)
-    z_min_train = model.np_z_train.min(axis=0)
-    z_max_train = model.np_z_train.max(axis=0)
-    print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
+
+    # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
     print('------ Start Test ------')
     trainer.test(model) #The test loop will not be used until you call.
     # print(results)
