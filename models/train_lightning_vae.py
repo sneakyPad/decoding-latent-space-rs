@@ -291,14 +291,14 @@ class VAE(pl.LightningModule):
 
         print('test step')
 
-        model.eval()
+        self.eval()
         ts_batch_user_features = batch
 
         test_loss = 0
         # with torch.no_grad():
         #     for i, data in enumerate(test_loader):
 
-        recon_batch, ts_mu_chunk, ts_logvar_chunk = model(ts_batch_user_features)
+        recon_batch, ts_mu_chunk, ts_logvar_chunk = self(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
 
         self.np_z_test = np.append(self.np_z_test, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
@@ -637,27 +637,29 @@ if __name__ == '__main__':
     )
 
     #%%
-    print('<---------------------------------- VAE Training ---------------------------------->')
-    print("Running with the following configuration: \n{}".format(args))
-    model = VAE(model_params)
-    utils.print_nn_summary(model)
+    # print('<---------------------------------- VAE Training ---------------------------------->')
+    # print("Running with the following configuration: \n{}".format(args))
+    # model = VAE(model_params)
+    # utils.print_nn_summary(model)
+    #
+    # print('------ Start Training ------')
+    # trainer.fit(model)
+    #
+    # print('------ Saving model ------')
+    # trainer.save_checkpoint("example.ckpt")
+    # model.save_attributes('attributes.pickle')
 
-    print('------ Start Training ------')
-    trainer.fit(model)
-
-    print('------ Saving model ------')
-    trainer.save_checkpoint("example.ckpt")
-    model.save_attributes('attributes.pickle')
     print('------ Load model -------')
-    new_model = VAE.load_from_checkpoint("example.ckpt")#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
-    new_model.load_attributes('attributes.pickle')
+    test_model = VAE.load_from_checkpoint("example.ckpt")#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+    test_model.load_attributes('attributes.pickle')
+
     # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
     print('------ Start Test ------')
-    trainer.test(new_model) #The test loop will not be used until you call.
+    trainer.test(test_model) #The test loop will not be used until you call.
     # print(results)
 
     # %%
-    utils.plot_results(model, neptune_logger, max_epochs)
+    utils.plot_results(test_model, neptune_logger, max_epochs)
 
     #TODO Bring back in
 

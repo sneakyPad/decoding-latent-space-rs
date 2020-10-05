@@ -62,13 +62,13 @@ def ls_columns_to_dfrows(ls_val, column_base_name):
 
 def plot_catplot(df, title):
     # plt.xticks(rotation=45)
-    g=sns.catplot(x="cols", y="values", data=df).set(title=title)
+    g=sns.catplot(x="cols", y="values",s=3, data=df).set(title=title)
     g.ax.set_xticklabels(g.ax.get_xticklabels(), rotation=65)
     plt.show()
 
 def plot_swarmplot(df, title):
     # plt.xticks(rotation=45)
-    ax=sns.swarmplot(x="cols", y="values", data=df)
+    ax=sns.swarmplot(x="cols", y="values",s=3, data=df)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=65)
     ax.set(title=title)
     plt.show()
