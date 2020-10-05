@@ -37,7 +37,7 @@ import pandas as pd
 
 from sklearn import manifold, decomposition
 
-
+import pickle
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -149,19 +149,23 @@ def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filte
     return mask
 
 class VAE(pl.LightningModule):
-    def __init__(self, **kwargs):
+    def __init__(self, conf:dict, *args, **kwargs):
         super().__init__()
+
+        # self.kwargs = kwargs
+        self.save_hyperparameters(conf)
+
         self.avg_mce = 0.0
         self.train_dataset = None
         self.test_dataset = None
-        self.test_size = kwargs["test_size"]
-        self.no_latent_factors = kwargs["latent_dim"]
+        self.test_size = self.hparams["test_size"]
+        self.no_latent_factors = self.hparams["latent_dim"]
         self.max_unique_movies = 0
         self.unique_movies =0
         self.np_user_item = None
-        self.small_dataset = kwargs["small_dataset"]
-        self.simplified_rating = kwargs["simplified_rating"]
-        self.max_epochs = kwargs["max_epochs"]
+        self.small_dataset = self.hparams["small_dataset"]
+        self.simplified_rating = self.hparams["simplified_rating"]
+        self.max_epochs = self.hparams["max_epochs"]
         self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
@@ -181,7 +185,11 @@ class VAE(pl.LightningModule):
         self.np_mu_train = np.empty((0, self.no_latent_factors))
         self.np_logvar_train = np.empty((0, self.no_latent_factors))
 
-        # self.save_hyperparameters()
+        # if (kwargs.get('load_saved_attributes') == True):
+        #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
+        #     print('attributes loaded')
+        #
+        #     self.np_z_train = dct_attributes['np_z_train']
 
     def encode(self, x):
         h1 = F.relu(self.fc1(x))
@@ -259,6 +267,7 @@ class VAE(pl.LightningModule):
             self.np_z_train = np.append(self.np_z_train, np.asarray(ls_grad_z.tolist()), axis=0) #TODO Describe in thesis that I get back a grad object instead of a pure tensor as it is in the test method since we are in the training method.
             self.np_mu_train = np.append(self.np_mu_train, np.asarray(ts_mu_chunk.tolist()), axis=0)
             self.np_logvar_train = np.append(self.np_logvar_train, np.asarray(ts_logvar_chunk.tolist()), axis=0)
+
 
 
         batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies)
@@ -378,6 +387,16 @@ class VAE(pl.LightningModule):
         avg_mse_wo_zeros = batch_mse_wo_zeros / ls_yhat_user.shape[0]
         return avg_rmse, avg_mse, avg_rmse_wo_zeros, avg_mse_wo_zeros
 
+    def load_attributes(self, path): #'filename.pickle'
+        with open(path, 'rb') as handle:
+            dct_attributes = pickle.load(handle)
+        self.np_z_train = dct_attributes['np_z_train']
+        print('Attributes loaded')
+
+    def save_attributes(self, path):
+        dct_attributes = {'np_z_train':self.np_z_train}
+        with open(path, 'wb') as handle:
+            pickle.dump(dct_attributes, handle)
 
 
 def my_eval(expression):
@@ -556,7 +575,7 @@ if __name__ == '__main__':
 
     train_dataset = None
     test_dataset = None
-    max_epochs = 3
+    max_epochs = 2
 
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -611,7 +630,7 @@ if __name__ == '__main__':
                                             logger=neptune_logger,
                                             # logger=False,
                                             # row_log_interval = 5,
-                                            checkpoint_callback = False,
+                                            # checkpoint_callback = False,
                                             gpus=0,
                                             weights_summary='full'
                                             #num_nodes=4
@@ -620,14 +639,21 @@ if __name__ == '__main__':
     #%%
     print('<---------------------------------- VAE Training ---------------------------------->')
     print("Running with the following configuration: \n{}".format(args))
-    model = VAE(**model_params)
+    model = VAE(model_params)
     utils.print_nn_summary(model)
 
     print('------ Start Training ------')
     trainer.fit(model)
-   # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
+
+    print('------ Saving model ------')
+    trainer.save_checkpoint("example.ckpt")
+    model.save_attributes('attributes.pickle')
+    print('------ Load model -------')
+    new_model = VAE.load_from_checkpoint("example.ckpt")#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+    new_model.load_attributes('attributes.pickle')
+    # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
     print('------ Start Test ------')
-    trainer.test(model) #The test loop will not be used until you call.
+    trainer.test(new_model) #The test loop will not be used until you call.
     # print(results)
 
     # %%
@@ -642,13 +668,13 @@ if __name__ == '__main__':
 
 #%%
 # plot_ae_img(batch_features,test_loader)
-ls_dct_test =[{'a': 5},{'b': 10}]
-ls_x=[]
-ls_y=[]
-for mce in ls_dct_test:
-    for key, val in mce.items():
-        ls_x.append(key)
-        ls_y.append(val)
-
-import seaborn as sns
-sns.barplot(x=ls_x, y=ls_y)
+# ls_dct_test =[{'a': 5},{'b': 10}]
+# ls_x=[]
+# ls_y=[]
+# for mce in ls_dct_test:
+#     for key, val in mce.items():
+#         ls_x.append(key)
+#         ls_y.append(val)
+#
+# import seaborn as sns
+# sns.barplot(x=ls_x, y=ls_y)
