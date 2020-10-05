@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-import recmetrics
+# import recmetrics
 # import matplotlib.pyplot as plt
-from surprise import Reader, SVD, Dataset
+# from surprise import Reader, SVD, Dataset
 # from surprise.model_selection import train_test_split
 
 #ToDo EDA:
@@ -331,8 +331,8 @@ def train(dct_hyperparam: dict, simplified_rating: bool, small_dataset: bool, lo
             ls_yhat_user = model.prediction_single(ts_batch_user_features)
             ls_yhat_user = ls_yhat_user * ts_batch_user_features  #Set all items to zero that are of no interest and haven't been seen
 
-            mse_user_wo_zeros += recmetrics.mse(ts_batch_user_features.tolist(),
-                                          ls_yhat_user)  # Compute MSE on items that have been recommended
+            # mse_user_wo_zeros += recmetrics.mse(ts_batch_user_features.tolist(),
+            #                               ls_yhat_user)  # Compute MSE on items that have been recommended
 
 
 

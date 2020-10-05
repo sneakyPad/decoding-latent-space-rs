@@ -3,7 +3,6 @@ import json
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-import surprise
 from sklearn import manifold, decomposition
 from sklearn.metrics import mean_squared_error
 
@@ -12,11 +11,11 @@ from torchsummaryX import summary
 def calculate_metrics(y_actual, y_predicted):
     #RMSE
     rmse = mean_squared_error(y_actual, y_predicted, squared=False)
-    print("RMSE :{}".format(rmse))
+    # print("RMSE :{}".format(rmse))
 
     #MSE
     mse = mean_squared_error(y_actual, y_predicted, squared=True)
-    print("MSE :{}".format(mse))
+    # print("MSE :{}".format(mse))
     return rmse,mse
 
 def print_nn_summary(model):
@@ -55,9 +54,9 @@ def save_dict_as_json(dct, name):
 def ls_columns_to_dfrows(ls_val, column_base_name):
     print(ls_val.shape)
     ls_columns = [column_base_name + str(i) for i in range(1, ls_val.shape[1] + 1)]
-    print(ls_columns)
+    # print(ls_columns)
     df_z = pd.DataFrame(data=ls_val, columns=ls_columns)
-    print(df_z.columns)
+    # print(df_z.columns)
     df_piv = df_z.melt(var_name='cols', value_name='values')  # Transforms it to: _| cols | vals|
     return df_piv
 
@@ -125,4 +124,4 @@ def plot_results(model, neptune_logger, max_epochs):
     plot_swarmplot(df_melted, "Latent Factors")
     plot_violinplot(df_melted, "Latent Factors")
 
-    plot_mce(model, neptune_logger, max_epochs)
+    # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries

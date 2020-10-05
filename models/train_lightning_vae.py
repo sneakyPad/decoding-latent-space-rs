@@ -1,6 +1,6 @@
 # pip install pytorch-lightning
 # pip install neptune-client
-
+#%%
 
 from __future__ import print_function
 import torch, torch.nn as nn, torchvision, torch.optim as optim
@@ -8,12 +8,12 @@ import numpy as np
 
 import pandas as pd
 from tqdm import tqdm
-from pytorch_lightning.logging.neptune import NeptuneLogger
+from pytorch_lightning.loggers.neptune import NeptuneLogger
 
 from pytorch_lightning import Trainer
 from sklearn.model_selection import train_test_split
-import recmetrics
-from surprise import Reader, SVD, Dataset
+# import recmetrics
+# from surprise import Reader, SVD, Dataset
 # from surprise.model_selection import train_test_split
 import ast
 from collections import defaultdict
@@ -138,6 +138,16 @@ def manual_create_user_item_matrix(df, simplified_rating: bool):
     return np_user_item_mx.astype(np.float32), max_unique_movies
 
 
+def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter: bool):
+    # user_based_items_filter == True is what most people do
+    mask = None
+    if (user_based_items_filter):
+        mask = ts_batch_user_features == 0.  # filter out everything except what the user has seen , mask_zeros
+    else:
+        # TODO Mask filters also 1 out, that's bad
+        mask = ts_batch_user_features == tsls_yhat_user  # Obtain a mask for filtering out items that haven't been seen nor recommended, basically filter out what is 0:0 or 1:1
+    return mask
+
 class VAE(pl.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
@@ -239,6 +249,7 @@ class VAE(pl.LightningModule):
         return optimizer#, scheduler
 
     def training_step(self, batch, batch_idx):
+
         print('train step')
         ts_batch_user_features = batch
         recon_batch, ts_mu_chunk, ts_logvar_chunk = self.forward(ts_batch_user_features)  # sample data
@@ -253,6 +264,7 @@ class VAE(pl.LightningModule):
         batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies)
         loss = batch_loss/len(ts_batch_user_features)
         logs = {'loss': loss}
+        return {'loss': loss}
         return {'loss': loss, 'log': logs}
 
 
@@ -261,6 +273,7 @@ class VAE(pl.LightningModule):
     #     return 0
     #
     def test_step(self, batch, batch_idx):
+        batch_mce =0
         #TODO needs to be outside of test loop
         print('Shape np_z_train: {}'.format(self.np_z_train.shape))
         self.z_mean_train = self.np_z_train.mean(axis=0)
@@ -285,14 +298,20 @@ class VAE(pl.LightningModule):
         # self.np_z = np.vstack((self.np_z, np_z_chunk))
 
 
-        batch_rmse, batch_mse = utils.calculate_metrics(ts_batch_user_features,recon_batch)
+        batch_rmse, batch_mse, batch_rmse_wo_zeros, batch_mse_wo_zeros = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies).item()
-        batch_mce = mce_batch(model, ts_batch_user_features, k=1)
+        # batch_mce = mce_batch(model, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss / len(ts_batch_user_features)
 
-        return {'test_loss': batch_loss, 'mce': batch_mce, 'rmse': batch_rmse, 'mse': batch_mse}
+        return {'test_loss': batch_loss,
+                'mce': batch_mce,
+                'rmse': batch_rmse,
+                'mse': batch_mse,
+                'rmse_wo_zeros': batch_rmse_wo_zeros,
+                'mse_wo_zeros': batch_mse_wo_zeros
+                }
 
         # test_loss /= len(test_loader.dataset)
         # print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -306,14 +325,58 @@ class VAE(pl.LightningModule):
         # avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
 
         avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
+        avg_rmse_wo_zeros = np.array([x['rmse_wo_zeros'] for x in outputs]).mean()
         avg_mse = np.array([x['mse'] for x in outputs]).mean()
+        avg_mse_wo_zeros = np.array([x['mse_wo_zeros'] for x in outputs]).mean()
 
         tensorboard_logs = {'test_loss': avg_loss}
         neptune_logger.experiment.log_metric('rmse', avg_rmse)
+        neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
+        neptune_logger.experiment.log_metric('mse', avg_mse)
+        neptune_logger.experiment.log_metric('mse_wo_zeros', avg_mse_wo_zeros)
 
         # self.avg_mce = avg_mce
 
         return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse}#, , 'mce':avg_mce
+
+
+
+    def calculate_batch_metrics(self, recon_batch, ts_batch_user_features):
+        # Compute MSE
+        # TODO MOre generic ...
+
+        # mask = generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter=loss_user_items_only)
+        # tsls_yhat_user_filtered = tsls_yhat_user[~mask]  # Predicted: Filter out unseen+unrecommended items
+        # ts_user_features_seen = ts_batch_user_features[~mask]  # Ground Truth: Filter out unseen+unrecommended items
+
+        # TODO ...than this approach
+
+        batch_rmse = 0
+        batch_mse = 0
+        batch_rmse_wo_zeros = 0
+        batch_mse_wo_zeros = 0
+        ls_yhat_user = recon_batch * ts_batch_user_features  # Set all items to zero that are of no interest and haven't been seen
+        for idx, tensor in enumerate(ls_yhat_user):
+            np_y = ts_batch_user_features[idx].data.numpy()
+            np_y_wo_zeros = np_y[np.nonzero(np_y)]  # inner returns the index
+
+            np_yhat = tensor.data.numpy()
+            np_yhat_wo_zeros = np_yhat[np.nonzero(np_yhat)]
+
+            rmse, mse = utils.calculate_metrics(np_y, np_yhat)
+            rmse_wo_zeros, mse_wo_zeros = utils.calculate_metrics(np_y_wo_zeros, np_yhat_wo_zeros)
+            batch_rmse += rmse
+            batch_rmse_wo_zeros += rmse_wo_zeros
+
+            batch_mse += mse
+            batch_mse_wo_zeros += mse_wo_zeros
+        # batch_rmse, batch_mse = utils.calculate_metrics(ts_batch_user_features,ls_yhat_user)
+        avg_rmse = batch_rmse / ls_yhat_user.shape[0]
+        avg_rmse_wo_zeros = batch_rmse_wo_zeros / ls_yhat_user.shape[0]
+
+        avg_mse = batch_mse / ls_yhat_user.shape[0]
+        avg_mse_wo_zeros = batch_mse_wo_zeros / ls_yhat_user.shape[0]
+        return avg_rmse, avg_mse, avg_rmse_wo_zeros, avg_mse_wo_zeros
 
 
 
@@ -493,7 +556,7 @@ if __name__ == '__main__':
 
     train_dataset = None
     test_dataset = None
-    max_epochs = 2
+    max_epochs = 3
 
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -517,7 +580,7 @@ if __name__ == '__main__':
     #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.003,#TODO Change test size to 0.33
+                    "test_size": 0.2,#TODO Change test size to 0.33
                     "latent_dim":3,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
@@ -562,8 +625,7 @@ if __name__ == '__main__':
 
     print('------ Start Training ------')
     trainer.fit(model)
-
-    # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
+   # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
     print('------ Start Test ------')
     trainer.test(model) #The test loop will not be used until you call.
     # print(results)
@@ -571,8 +633,10 @@ if __name__ == '__main__':
     # %%
     utils.plot_results(model, neptune_logger, max_epochs)
 
-    neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
-    neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
+    #TODO Bring back in
+
+    # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
+    # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
 
     print('Test done')
 
