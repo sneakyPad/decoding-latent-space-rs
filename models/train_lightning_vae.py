@@ -637,21 +637,27 @@ if __name__ == '__main__':
     )
 
     #%%
-    # print('<---------------------------------- VAE Training ---------------------------------->')
-    # print("Running with the following configuration: \n{}".format(args))
-    # model = VAE(model_params)
-    # utils.print_nn_summary(model)
-    #
-    # print('------ Start Training ------')
-    # trainer.fit(model)
-    #
-    # print('------ Saving model ------')
-    # trainer.save_checkpoint("example.ckpt")
-    # model.save_attributes('attributes.pickle')
+
+    train = True
+    base_path = 'results/models/vae/50/'
+    model_path = base_path + 'model.ckpt'
+    attribute_path = base_path + 'attributes.pickle'
+    if(train):
+        print('<---------------------------------- VAE Training ---------------------------------->')
+        print("Running with the following configuration: \n{}".format(args))
+        model = VAE(model_params)
+        utils.print_nn_summary(model)
+
+        print('------ Start Training ------')
+        trainer.fit(model)
+
+        print('------ Saving model ------')
+        trainer.save_checkpoint(model_path)
+        model.save_attributes(attribute_path)
 
     print('------ Load model -------')
-    test_model = VAE.load_from_checkpoint("example.ckpt")#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
-    test_model.load_attributes('attributes.pickle')
+    test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+    test_model.load_attributes(attribute_path)
 
     # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
     print('------ Start Test ------')
