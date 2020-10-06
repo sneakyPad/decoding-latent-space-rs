@@ -158,6 +158,7 @@ class VAE(pl.LightningModule):
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
 
+        self.beta = self.hparams["beta"]
         self.avg_mce = 0.0
         self.train_dataset = None
         self.test_dataset = None
@@ -273,7 +274,7 @@ class VAE(pl.LightningModule):
 
 
 
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies)
+        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
         loss = batch_loss/len(ts_batch_user_features)
 
         # tensorboard_logs = {'train_loss': loss}
@@ -312,7 +313,7 @@ class VAE(pl.LightningModule):
 
 
         batch_rmse, batch_mse, batch_rmse_wo_zeros, batch_mse_wo_zeros = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies).item()
+        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies).item()
         # batch_mce = mce_batch(model, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
@@ -495,7 +496,6 @@ def match_metadata(indezes, df_links):
     return df_w_metadata
 
 
-    return
 def alter_z(ts_z, latent_factor_position, model):
     ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position] #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
     return ts_z
@@ -564,16 +564,16 @@ def mce_batch(model, ts_batch_features, k=0):
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
-def loss_function(recon_x, x, mu, logvar, unique_movies):
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies), reduction='sum')
+def loss_function(recon_x, x, mu, logvar, beta, unique_movies):
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies), reduction='sum') #TODO: Is that correct? binary cross entropy - (Encoder)
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) #Kullback Leibler (Decoder)
 
-    return BCE + KLD
+    return BCE + beta *KLD #beta = disentangle factor
 
 
 
@@ -607,6 +607,7 @@ if __name__ == '__main__':
                     "small_dataset": True,
                     "test_size": 0.2,#TODO Change test size to 0.33
                     "latent_dim":3,
+                    "beta":1,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -623,8 +624,9 @@ if __name__ == '__main__':
     train = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [5,7]
+    ls_epochs = [5]
     ls_latent_factors = [3]
+    ls_disentangle_factors = [1] #TODO: Maybe try out 10 here
 
 
     # ls_epochs = [50, 500, 2000]
@@ -632,54 +634,57 @@ if __name__ == '__main__':
 
     for epoch in ls_epochs:
         for lf in ls_latent_factors:
-            print("Processing model with: {} epochs, {} latent factors".format(epoch, lf))
-            exp_name = "{}_epochs_{}_lf".format(epoch,lf)
-            model_name = exp_name+".ckpt"
-            attribute_name = exp_name+"_attributes.pickle"
-            model_path = base_path + model_name
-            attribute_path = base_path + attribute_name
+            for beta in ls_disentangle_factors:
+                print("Processing model with: {} epochs, {} latent factors, {} beta".format(epoch, lf, beta))
+                exp_name = "{}_beta_{}_epochs_{}_lf".format(beta,epoch,lf)
+                model_name = exp_name+".ckpt"
+                attribute_name = exp_name+"_attributes.pickle"
+                model_path = base_path + model_name
+                attribute_path = base_path + attribute_name
 
-            model_params['max_epochs'] = epoch
-            model_params['latent_dim'] = lf
+                model_params['max_epochs'] = epoch
+                model_params['latent_dim'] = lf
+                model_params['beta'] = beta
 
-            args.max_epochs = epoch
-            trainer = pl.Trainer.from_argparse_args(args,
-                                                    logger=wandb_logger, #False
-                                                    gpus=0,
-                                                    weights_summary='full'
-                                                    # checkpoint_callback = False,)
+                args.max_epochs = epoch
+                trainer = pl.Trainer.from_argparse_args(args,
+                                                        logger=wandb_logger, #False
+                                                        gpus=0,
+                                                        weights_summary='full',
+                                                        checkpoint_callback = False,
+                )
 
-            if(train):
-                print('<---------------------------------- VAE Training ---------------------------------->')
-                print("Running with the following configuration: \n{}".format(args))
-                model = VAE(model_params)
-                utils.print_nn_summary(model)
+                if(train):
+                    print('<---------------------------------- VAE Training ---------------------------------->')
+                    print("Running with the following configuration: \n{}".format(args))
+                    model = VAE(model_params)
+                    utils.print_nn_summary(model)
 
-                print('------ Start Training ------')
-                trainer.fit(model)
+                    print('------ Start Training ------')
+                    trainer.fit(model)
 
-                print('------ Saving model ------')
-                trainer.save_checkpoint(model_path)
-                model.save_attributes(attribute_path)
+                    print('------ Saving model ------')
+                    trainer.save_checkpoint(model_path)
+                    model.save_attributes(attribute_path)
 
-            print('------ Load model -------')
-            test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
-            test_model.load_attributes(attribute_path)
+                print('------ Load model -------')
+                test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+                test_model.load_attributes(attribute_path)
 
-            # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
-            print('------ Start Test ------')
-            trainer.test(test_model) #The test loop will not be used until you call.
-            # print(results)
+                # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
+                print('------ Start Test ------')
+                trainer.test(test_model) #The test loop will not be used until you call.
+                # print(results)
 
-            # %%
-            # utils.plot_results(test_model, neptune_logger, max_epochs)
+                # %%
+                # utils.plot_results(test_model, neptune_logger, max_epochs)
 
-            #TODO Bring back in
+                #TODO Bring back in
 
-            # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
-            # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
+                # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
+                # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
 
-            print('Test done')
+                print('Test done')
 
 #%%
 # plot_ae_img(batch_features,test_loader)
