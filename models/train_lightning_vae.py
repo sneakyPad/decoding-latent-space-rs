@@ -272,9 +272,10 @@ class VAE(pl.LightningModule):
 
         batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, unique_movies)
         loss = batch_loss/len(ts_batch_user_features)
-        logs = {'loss': loss}
-        return {'loss': loss}
-        return {'loss': loss, 'log': logs}
+
+        # tensorboard_logs = {'train_loss': loss}
+        tensorboard_logs = {'train_loss': loss}
+        return {'loss': loss, 'log': tensorboard_logs}
 
 
 
@@ -575,12 +576,12 @@ if __name__ == '__main__':
 
     train_dataset = None
     test_dataset = None
-    max_epochs = 2
+    max_epochs = 5
 
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--epochs', type=int, default=1, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--max_epochs', type=int, default=max_epochs, metavar='N',
                         help='number of max epochs to train (default: 15)')
@@ -588,7 +589,7 @@ if __name__ == '__main__':
                         help='enables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=1, metavar='N',
+    parser.add_argument('--log-interval', type=int, default=0, metavar='N',
                         help='how many batches to wait before logging training status')
     args = parser.parse_args()
 
@@ -611,7 +612,7 @@ if __name__ == '__main__':
     neptune_logger = NeptuneLogger(
         # api_key="api_key",
         project_name="paer/recommender-xai",
-        experiment_name="default",  # Optional,
+        # experiment_name="default",  # Optional,
         params = merged_params,
         # params={"max_epochs": 1,
         #         "batch_size": 32},  # Optional,
