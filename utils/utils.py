@@ -146,10 +146,56 @@ def plot_2d_pca(np_x, title, experiment_path, dct_params):
     plt.show()
 
 
+def plot_mce_by_latent_factor(df_mce, title, experiment_path, dct_params):
+
+
+    plt.figure(figsize=(30, 20))
+    df_mce['category'] = df_mce.index
+    df_piv = df_mce.melt(id_vars='category', var_name='latent_factor', value_name='mce')
+    fig = sns.catplot(x='latent_factor',
+                      y='mce',
+                      hue='category',
+                      data=df_piv,
+                      kind='bar',
+                      legend_out=False,
+                      aspect=1.65
+                      )
+    plt.title(title, fontsize=17, y=1.08)
+
+    plt.legend(bbox_to_anchor=(0.5, -0.25),  # 1.05, 1
+               loc='upper center',  # 'center left'
+               borderaxespad=0.,
+               fontsize=8,
+               ncol=5)
+
+    plt.tight_layout()
+    save_figure(fig, experiment_path,'mce_latent_factor', dct_params)
+    plt.show()
+
+
+def plot_parallel_plot(df_mce, title, experiment_path, dct_params):
+    df_flipped = df_mce.transpose()
+    ls_lf = [i for i in range(0, df_flipped.shape[0])]
+    df_flipped['latent_factors'] = ls_lf
+    ax = pd.plotting.parallel_coordinates(
+        df_flipped, 'latent_factors', colormap='viridis')
+
+    ax.xaxis.set_tick_params(labelsize=6)
+    fig = ax.get_figure()
+    plt.title(title, fontsize=20, y=1.08)
+    # plt.xlabel('xlabel', fontsize=10)
+    plt.xticks(rotation=90)
+
+    plt.tight_layout()
+    save_figure(fig, experiment_path,'parallel_plot', dct_params)
+    plt.show()
+
+
 def plot_results(model, experiment_path, dct_params):
 
     sns.set_style("whitegrid")
     sns.set_theme(style="ticks")
+    df_mce_results = pd.read_json('../data/generated/mce_results.json')
 
     # Apply PCA on Data an plot it afterwards
     np_z_pca = apply_pca(model.np_z_test)
@@ -161,5 +207,7 @@ def plot_results(model, experiment_path, dct_params):
     plot_catplot(df_melted, "Latent Factors", experiment_path,dct_params)
     plot_swarmplot(df_melted, "Latent Factors", experiment_path,dct_params)
     plot_violinplot(df_melted, "Latent Factors", experiment_path,dct_params)
+    plot_mce_by_latent_factor(df_mce_results, 'MCE sorted by Latent Factor', experiment_path, dct_params)
+    plot_parallel_plot(df_mce_results, 'MCE for different Metadata', experiment_path, dct_params)
 
     # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries

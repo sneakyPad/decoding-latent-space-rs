@@ -317,7 +317,7 @@ class VAE(pl.LightningModule):
 
         batch_rmse, batch_mse, batch_rmse_wo_zeros, batch_mse_wo_zeros = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
         batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies).item()
-        # batch_mce = mce_batch(model, ts_batch_user_features, k=1)
+        batch_mce = mce_batch(self, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss / len(ts_batch_user_features)
@@ -347,7 +347,7 @@ class VAE(pl.LightningModule):
         avg_mse_wo_zeros = np.array([x['mse_wo_zeros'] for x in outputs]).mean()
 
         tensorboard_logs = {'test_loss': avg_loss}
-        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_wo_zeros':avg_mse_wo_zeros})
+        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_wo_zeros':avg_rmse_wo_zeros, 'mse': avg_mse, 'mse_wo_zeros': avg_mse_wo_zeros})
         # neptune_logger.experiment.log_metric('rmse', avg_rmse)
         # neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
         # neptune_logger.experiment.log_metric('mse', avg_mse)
@@ -400,10 +400,11 @@ class VAE(pl.LightningModule):
         with open(path, 'rb') as handle:
             dct_attributes = pickle.load(handle)
         self.np_z_train = dct_attributes['np_z_train']
+        # self.z_max_train = dct_attributes['z_max_train']
         print('Attributes loaded')
 
     def save_attributes(self, path):
-        dct_attributes = {'np_z_train':self.np_z_train}
+        dct_attributes = {'np_z_train':self.np_z_train}#, 'z_max_train': self.z_max_train
         with open(path, 'wb') as handle:
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
@@ -606,7 +607,7 @@ if __name__ == '__main__':
     #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.2,#TODO Change test size to 0.33
+                    "test_size": 0.02,#TODO Change test size to 0.33
                     "latent_dim":3,
                     "beta":1,
                     "max_epochs": max_epochs}
@@ -625,7 +626,7 @@ if __name__ == '__main__':
     train = False
     base_path = 'results/models/vae/'
 
-    ls_epochs = [5]
+    ls_epochs = [10]
     ls_latent_factors = [3]
     ls_disentangle_factors = [1] #TODO: Maybe try out 10 here
 
@@ -670,6 +671,7 @@ if __name__ == '__main__':
 
                 print('------ Load model -------')
                 test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+                # test_model.test_size = model_params['test_size']
                 test_model.load_attributes(attribute_path)
 
                 # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
@@ -705,3 +707,7 @@ if __name__ == '__main__':
 #
 # import seaborn as sns
 # sns.barplot(x=ls_x, y=ls_y)
+
+# import plotly.express as px
+# df = px.data.iris()
+# print(df.head())
