@@ -43,8 +43,7 @@ from sklearn import manifold, decomposition
 import pickle
 import wandb
 
-from datetime import datetime
-import os
+
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -579,28 +578,6 @@ def loss_function(recon_x, x, mu, logvar, beta, unique_movies):
 
     return BCE + beta *KLD #beta = disentangle factor
 
-
-
-def create_experiment_directory():
-    # datetime object containing current date and time
-    now = datetime.now()
-
-    print("now =", now)
-    dt_string = now.strftime("%d-%m-%Y-%H_%M_%S")
-    print("date and time =", dt_string)
-
-    # define the name of the directory to be created
-    path = "results/images/" + dt_string + "/"
-
-    try:
-        os.mkdir(path)
-    except OSError:
-        print("Creation of the directory %s failed" % path)
-    else:
-        print("Successfully created the directory %s " % path)
-
-    return path
-
 if __name__ == '__main__':
 
     train_dataset = None
@@ -702,15 +679,12 @@ if __name__ == '__main__':
 
                 # %%
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
-                experiment_path = create_experiment_directory()
-
+                experiment_path = utils.create_experiment_directory()
                 utils.plot_results(test_model, experiment_path,dct_param )
-
 
                 artifact = wandb.Artifact('Plots', type='result')
                 artifact.add_dir(experiment_path)#, name='images'
-                wandb_logger.experiment.log_artifact(artifact, name ='plots')
-                # wandb_logger.experiment.log_artifact(artifact_or_path=fig, name='pca_plot')
+                wandb_logger.experiment.log_artifact(artifact)
 
                 #TODO Bring back in
 
