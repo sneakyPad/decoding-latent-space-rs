@@ -182,6 +182,9 @@ class VAE(pl.LightningModule):
         self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=400) #hidden layer
         self.fc4 = nn.Linear(in_features=400, out_features=self.unique_movies)
 
+        self.KLD = None
+        self.ls_kld = []
+        self.dis_KLD = None
 
         self.z = None
         self.np_z_test = np.empty((0, self.no_latent_factors))#self.test_dataset.shape[0]
@@ -247,13 +250,13 @@ class VAE(pl.LightningModule):
     def train_dataloader(self):
         #TODO Change shuffle to True, just for dev purpose switched on
         train_loader = torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=128, shuffle=False, num_workers=1, pin_memory=True
+            self.train_dataset, batch_size=128, shuffle=True, num_workers=1, pin_memory=True
         )
         return train_loader
 
     def test_dataloader(self):
         test_loader = torch.utils.data.DataLoader(
-            self.test_dataset, batch_size=32, shuffle=False, num_workers=1
+            self.test_dataset, batch_size=32, shuffle=True, num_workers=1
         )
         return test_loader
 
@@ -277,12 +280,14 @@ class VAE(pl.LightningModule):
 
 
 
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+        batch_loss = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+        self.ls_kld.append(self.KLD.tolist())
         loss = batch_loss/len(ts_batch_user_features)
 
         # tensorboard_logs = {'train_loss': loss}
-        tensorboard_logs = {'train_loss': loss}
-        return {'loss': loss, 'log': tensorboard_logs}
+        tensorboard_logs = {'train_loss': loss,
+                'kld': self.KLD}
+        return {'loss': loss, 'log': tensorboard_logs, 'foo':1}
 
 
 
@@ -315,9 +320,9 @@ class VAE(pl.LightningModule):
         # self.np_z = np.vstack((self.np_z, np_z_chunk))
 
 
-        batch_rmse, batch_mse, batch_rmse_wo_zeros, batch_mse_wo_zeros = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
-        batch_loss = loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies).item()
-        batch_mce = mce_batch(self, ts_batch_user_features, k=1)
+        batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
+        batch_loss = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies).item()
+        # batch_mce = mce_batch(self, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss / len(ts_batch_user_features)
@@ -326,8 +331,8 @@ class VAE(pl.LightningModule):
                 'mce': batch_mce,
                 'rmse': batch_rmse,
                 'mse': batch_mse,
-                'rmse_wo_zeros': batch_rmse_wo_zeros,
-                'mse_wo_zeros': batch_mse_wo_zeros
+                'rmse_w_zeros': batch_rmse_w_zeros,
+                'mse_w_zeros': batch_mse_w_zeros
                 }
 
         # test_loss /= len(test_loader.dataset)
@@ -342,12 +347,12 @@ class VAE(pl.LightningModule):
         # avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
 
         avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
-        avg_rmse_wo_zeros = np.array([x['rmse_wo_zeros'] for x in outputs]).mean()
+        avg_rmse_w_zeros = np.array([x['rmse_w_zeros'] for x in outputs]).mean()
         avg_mse = np.array([x['mse'] for x in outputs]).mean()
-        avg_mse_wo_zeros = np.array([x['mse_wo_zeros'] for x in outputs]).mean()
+        avg_mse_w_zeros = np.array([x['mse_w_zeros'] for x in outputs]).mean()
 
         tensorboard_logs = {'test_loss': avg_loss}
-        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_wo_zeros':avg_rmse_wo_zeros, 'mse': avg_mse, 'mse_wo_zeros': avg_mse_wo_zeros})
+        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_w_zeros':avg_rmse_w_zeros, 'mse': avg_mse, 'mse_wo_zeros': avg_mse_w_zeros})
         # neptune_logger.experiment.log_metric('rmse', avg_rmse)
         # neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
         # neptune_logger.experiment.log_metric('mse', avg_mse)
@@ -357,6 +362,20 @@ class VAE(pl.LightningModule):
 
         return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse}#, , 'mce':avg_mce
 
+    # Reconstruction + KL divergence losses summed over all elements and batch
+    def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
+        BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),
+                                     reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
+
+        # see Appendix B from VAE paper:
+        # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+        # https://arxiv.org/abs/1312.6114
+        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        self._KLD = - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())  # Kullback Leibler (Decoder)
+        # self.KLD = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim = 1), dim = 0)
+        self.KLD = torch.mean(0.5 * torch.sum(torch.exp(logvar) + mu ** 2 - 1. - logvar, 1))
+        self.dis_KLD = beta * self.KLD
+        return BCE + self.dis_KLD  # beta = disentangle factor
 
 
     def calculate_batch_metrics(self, recon_batch, ts_batch_user_features):
@@ -379,7 +398,7 @@ class VAE(pl.LightningModule):
             np_y_wo_zeros = np_y[np.nonzero(np_y)]  # inner returns the index
 
             np_yhat = tensor.data.numpy()
-            np_yhat_wo_zeros = np_yhat[np.nonzero(np_yhat)]
+            np_yhat_wo_zeros = np_yhat[np.nonzero(np_y)] #This must be np_y
 
             rmse, mse = utils.calculate_metrics(np_y, np_yhat)
             rmse_wo_zeros, mse_wo_zeros = utils.calculate_metrics(np_y_wo_zeros, np_yhat_wo_zeros)
@@ -400,11 +419,13 @@ class VAE(pl.LightningModule):
         with open(path, 'rb') as handle:
             dct_attributes = pickle.load(handle)
         self.np_z_train = dct_attributes['np_z_train']
+        self.ls_kld = dct_attributes['ls_kld']
         # self.z_max_train = dct_attributes['z_max_train']
         print('Attributes loaded')
 
     def save_attributes(self, path):
-        dct_attributes = {'np_z_train':self.np_z_train}#, 'z_max_train': self.z_max_train
+        dct_attributes = {'np_z_train':self.np_z_train,
+                          'ls_kld':self.ls_kld}#, 'z_max_train': self.z_max_train
         with open(path, 'wb') as handle:
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
@@ -567,23 +588,12 @@ def mce_batch(model, ts_batch_features, k=0):
 
 
 
-# Reconstruction + KL divergence losses summed over all elements and batch
-def loss_function(recon_x, x, mu, logvar, beta, unique_movies):
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies), reduction='sum') #TODO: Is that correct? binary cross entropy - (Encoder)
-
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) #Kullback Leibler (Decoder)
-
-    return BCE + beta *KLD #beta = disentangle factor
 
 if __name__ == '__main__':
 
     train_dataset = None
     test_dataset = None
-    max_epochs = 5
+    max_epochs = 20
 
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -607,8 +617,8 @@ if __name__ == '__main__':
     #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.02,#TODO Change test size to 0.33
-                    "latent_dim":3,
+                    "test_size": 0.2,#TODO Change test size to 0.33
+                    "latent_dim": 3,
                     "beta":1,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
@@ -619,16 +629,15 @@ if __name__ == '__main__':
 
 
 
-    wandb_logger = WandbLogger(project='recommender-xai', tags=['vae'])
 
 
     #%%
-    train = False
+    train = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [10]
-    ls_latent_factors = [3]
-    ls_disentangle_factors = [1] #TODO: Maybe try out 10 here
+    ls_epochs = [300]
+    ls_latent_factors = [3, 5, 10]
+    ls_disentangle_factors = [1, 10] #TODO: Maybe try out 10 here
 
 
     # ls_epochs = [50, 500, 2000]
@@ -649,6 +658,11 @@ if __name__ == '__main__':
                 model_params['beta'] = beta
 
                 args.max_epochs = epoch
+                if(train):
+                    wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', 'train'],name=exp_name)
+                else:
+                    wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', 'test'], name=exp_name)
+
                 trainer = pl.Trainer.from_argparse_args(args,
                                                         logger=wandb_logger, #False
                                                         gpus=0,
@@ -665,6 +679,8 @@ if __name__ == '__main__':
                     print('------ Start Training ------')
                     trainer.fit(model)
 
+                    kld_matrix = model.KLD
+                    # model.dis_KLD
                     print('------ Saving model ------')
                     trainer.save_checkpoint(model_path)
                     model.save_attributes(attribute_path)
