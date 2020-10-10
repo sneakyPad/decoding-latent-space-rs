@@ -187,6 +187,7 @@ class VAE(pl.LightningModule):
         self.dis_KLD = None
 
         self.z = None
+        self.kld_matrix = np.empty((0, self.no_latent_factors))
         self.np_z_test = np.empty((0, self.no_latent_factors))#self.test_dataset.shape[0]
         self.np_mu_test = np.empty((0, self.no_latent_factors))
         self.np_logvar_test = np.empty((0, self.no_latent_factors))
@@ -352,7 +353,7 @@ class VAE(pl.LightningModule):
         avg_mse_w_zeros = np.array([x['mse_w_zeros'] for x in outputs]).mean()
 
         tensorboard_logs = {'test_loss': avg_loss}
-        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_w_zeros':avg_rmse_w_zeros, 'mse': avg_mse, 'mse_wo_zeros': avg_mse_w_zeros})
+        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_w_zeros':avg_rmse_w_zeros, 'mse': avg_mse, 'mse_wo_zeros': avg_mse_w_zeros, 'kld_matrix':self.kld_matrix})
         # neptune_logger.experiment.log_metric('rmse', avg_rmse)
         # neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
         # neptune_logger.experiment.log_metric('mse', avg_mse)
@@ -382,8 +383,11 @@ class VAE(pl.LightningModule):
         # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
         self._KLD = - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())  # Kullback Leibler (Decoder)
         # self.KLD = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim = 1), dim = 0)
-        kld_latent_factors = 0.5 * torch.sum(torch.exp(logvar) + mu ** 2 - 1. - logvar, dim=0)
-        kld_mean = torch.mean(kld_latent_factors)
+        kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
+        self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0) #TODO is there an alternative to [] for np.asarray?
+
+
+        kld_mean = torch.mean(0.5 * torch.sum(kld_latent_factors,dim=0))
         kld_weight = 1
         # kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
         self.KLD = kld_mean * kld_weight
@@ -645,10 +649,10 @@ if __name__ == '__main__':
 
 
     #%%
-    train = True
+    train = False
     base_path = 'results/models/vae/'
 
-    ls_epochs = [300]
+    ls_epochs = [5]
     ls_latent_factors = [3, 5, 10]
     ls_disentangle_factors = [100, 10,1] #TODO: Maybe try out 10 here
 
@@ -706,6 +710,7 @@ if __name__ == '__main__':
                 # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
                 print('------ Start Test ------')
                 trainer.test(test_model) #The test loop will not be used until you call.
+
                 # print(results)
 
                 # %%

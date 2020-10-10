@@ -195,11 +195,20 @@ def plot_KLD(ls_kld, title, experiment_path, dct_params):
     df_kld = pd.DataFrame(data=ls_kld, columns=['KLD'])
     ax = sns.lineplot(data = df_kld, x=df_kld.index, y="KLD")
 
-    fig = ax.get_figure()
-    plt.title(title, fontsize=20, y=1.08)
-    plt.tight_layout()
-    save_figure(fig, experiment_path, 'kld_plot', dct_params)
+
     plt.show()
+
+
+def plot_pairplot_lf(model, title, experiment_path, dct_params):
+    df_kld_matrix = pd.DataFrame(data=model.kld_matrix,
+                                 columns=[str(i) for i in range(0, model.kld_matrix.shape[1])])
+    fig = sns.pairplot(df_kld_matrix, corner=True, aspect=1.65).fig
+    plt.title(title, fontsize=17, y=1.08)
+    plt.tight_layout()
+    save_figure(fig, experiment_path, 'lf_correlation', dct_params)
+    plt.show()
+
+
 
 def plot_results(model, experiment_path, dct_params):
 
@@ -220,5 +229,6 @@ def plot_results(model, experiment_path, dct_params):
     # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', experiment_path, dct_params) ##make a copy otherwise the original df is altered,
     # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', experiment_path, dct_params)##make a copy otherwise the original df is altered,
     plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', experiment_path, dct_params)
+    plot_pairplot_lf(model, 'Correlation of Latent Factors', experiment_path, dct_params)
 
     # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries
