@@ -174,7 +174,7 @@ def plot_mce_by_latent_factor(df_mce, title, experiment_path, dct_params):
 
 
 def plot_parallel_plot(df_mce, title, experiment_path, dct_params):
-    df_flipped = df_mce.transpose()
+    df_flipped = df_mce.transpose() # columns and rows need to be flipped
     ls_lf = [i for i in range(0, df_flipped.shape[0])]
     df_flipped['latent_factors'] = ls_lf
     ax = pd.plotting.parallel_coordinates(
@@ -190,12 +190,22 @@ def plot_parallel_plot(df_mce, title, experiment_path, dct_params):
     save_figure(fig, experiment_path,'parallel_plot', dct_params)
     plt.show()
 
+def plot_KLD(ls_kld, title, experiment_path, dct_params):
+    # ls_kld =[2,200,2000,1800,2000,1500]
+    df_kld = pd.DataFrame(data=ls_kld, columns=['KLD'])
+    ax = sns.lineplot(data = df_kld, x=df_kld.index, y="KLD")
+
+    fig = ax.get_figure()
+    plt.title(title, fontsize=20, y=1.08)
+    plt.tight_layout()
+    save_figure(fig, experiment_path, 'kld_plot', dct_params)
+    plt.show()
 
 def plot_results(model, experiment_path, dct_params):
 
     sns.set_style("whitegrid")
-    sns.set_theme(style="ticks")
-    df_mce_results = pd.read_json('../data/generated/mce_results.json')
+    # sns.set_theme(style="ticks")
+    # df_mce_results = pd.read_json('../data/generated/mce_results.json')
 
     # Apply PCA on Data an plot it afterwards
     np_z_pca = apply_pca(model.np_z_test)
@@ -207,7 +217,8 @@ def plot_results(model, experiment_path, dct_params):
     plot_catplot(df_melted, "Latent Factors", experiment_path,dct_params)
     plot_swarmplot(df_melted, "Latent Factors", experiment_path,dct_params)
     plot_violinplot(df_melted, "Latent Factors", experiment_path,dct_params)
-    plot_mce_by_latent_factor(df_mce_results, 'MCE sorted by Latent Factor', experiment_path, dct_params)
-    plot_parallel_plot(df_mce_results, 'MCE for different Metadata', experiment_path, dct_params)
+    # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', experiment_path, dct_params) ##make a copy otherwise the original df is altered,
+    # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', experiment_path, dct_params)##make a copy otherwise the original df is altered,
+    plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', experiment_path, dct_params)
 
     # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries
