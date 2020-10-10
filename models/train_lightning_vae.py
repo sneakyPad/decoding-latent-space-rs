@@ -30,7 +30,7 @@ from torch.optim.lr_scheduler import StepLR
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import matplotlib.pyplot as plt
-
+import math
 import pytorch_lightning as pl
 import utils.utils as utils
 import matplotlib.pyplot as plt
@@ -363,6 +363,15 @@ class VAE(pl.LightningModule):
         return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse}#, , 'mce':avg_mce
 
     # Reconstruction + KL divergence losses summed over all elements and batch
+    def sigmoid_annealing(self, beta, epoch):
+        epoch_threshold = 10
+        stretch_factor = 0.5
+        if(epoch < epoch_threshold):
+            return 0
+        else:
+            kld_weight = beta/(1+ math.exp(-epoch * stretch_factor + epoch_threshold)) #epoch_threshold moves e function along the x-axis
+            return kld_weight
+
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
         BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),
                                      reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
@@ -373,7 +382,11 @@ class VAE(pl.LightningModule):
         # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
         self._KLD = - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())  # Kullback Leibler (Decoder)
         # self.KLD = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim = 1), dim = 0)
-        self.KLD = torch.mean(0.5 * torch.sum(torch.exp(logvar) + mu ** 2 - 1. - logvar, 1))
+        kld_latent_factors = 0.5 * torch.sum(torch.exp(logvar) + mu ** 2 - 1. - logvar, dim=0)
+        kld_mean = torch.mean(kld_latent_factors)
+        kld_weight = 1
+        # kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+        self.KLD = kld_mean * kld_weight
         self.dis_KLD = beta * self.KLD
         return BCE + self.dis_KLD  # beta = disentangle factor
 
@@ -637,7 +650,7 @@ if __name__ == '__main__':
 
     ls_epochs = [300]
     ls_latent_factors = [3, 5, 10]
-    ls_disentangle_factors = [1, 10] #TODO: Maybe try out 10 here
+    ls_disentangle_factors = [100, 10,1] #TODO: Maybe try out 10 here
 
 
     # ls_epochs = [50, 500, 2000]
