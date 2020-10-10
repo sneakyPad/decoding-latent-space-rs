@@ -138,6 +138,12 @@ models/runs
 data/MNIST/*
 data/numpy
 data/openlens/large
+data/movielens/*
+data/kaggle/*
+models/*
+data/generated/*
+
+
 
 # IDE specific
 **/.idea/workspace.xml 
