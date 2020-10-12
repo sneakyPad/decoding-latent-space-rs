@@ -196,6 +196,10 @@ class VAE(pl.LightningModule):
         self.np_mu_train = np.empty((0, self.no_latent_factors))
         self.np_logvar_train = np.empty((0, self.no_latent_factors))
 
+        self.dct_attribute_distribution = None # load relative frequency distributioon from dictionary (pickle it)
+        self.df_links = None
+        self.df_movies = None
+
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
         #     print('attributes loaded')
@@ -323,7 +327,7 @@ class VAE(pl.LightningModule):
 
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
         batch_loss = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies).item()
-        # batch_mce = mce_batch(self, ts_batch_user_features, k=1)
+        batch_mce = mce_batch(self, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss / len(ts_batch_user_features)
@@ -432,11 +436,16 @@ class VAE(pl.LightningModule):
         avg_mse_wo_zeros = batch_mse_wo_zeros / ls_yhat_user.shape[0]
         return avg_rmse, avg_mse, avg_rmse_wo_zeros, avg_mse_wo_zeros
 
-    def load_attributes(self, path): #'filename.pickle'
+    def load_attributes_and_files(self, path): #'filename.pickle'
         with open(path, 'rb') as handle:
             dct_attributes = pickle.load(handle)
         self.np_z_train = dct_attributes['np_z_train']
         self.ls_kld = dct_attributes['ls_kld']
+
+        self.dct_attribute_distribution = utils.load_json_as_dict(
+            'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
+        self.df_links = pd.read_csv('../data/movielens/small/links.csv')
+        self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
         # self.z_max_train = dct_attributes['z_max_train']
         print('Attributes loaded')
 
@@ -456,8 +465,7 @@ def my_eval(expression):
     except ValueError: #e.g. an entry is nan, in that case just return an empty string
         return ''
 
-def mce_relative_frequency(y_hat, y_hat_latent):
-    dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
+def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
     # dct_dist = pickle.load(movies_distribution)
 
     dct_mce = defaultdict(float)
@@ -512,12 +520,11 @@ def calculate_mean_of_ls_dict(ls_dict: list):
     print(dct_mean)
     return dct_mean
 
-def match_metadata(indezes, df_links):
+def match_metadata(indezes, df_links, df_movies):
     # ls_indezes = y_hat.values.index
     #TODO Source read_csv out
-    df_links = pd.read_csv('../data/movielens/small/links.csv')
-    df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
-    # df_imdb_ids = df_links.loc[df_links['movieId'].isin(indezes),['imdbId']] #dataframe
+    # df_links = pd.read_csv('../data/movielens/small/links.csv')
+    # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
     global dct_index2itemId
 
@@ -549,13 +556,17 @@ def mce_batch(model, ts_batch_features, k=0):
     # change 1 neuron
     ls_y_hat, mu, logvar = model(ts_batch_features)
     z = model.z
+    # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
+    # df_links = pd.read_csv('../data/movielens/small/links.csv')
+    # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
+
     for latent_factor_position in range(model.no_latent_factors):
         print("Calculate MCEs for position: {} in vector z".format(latent_factor_position))
         ts_altered_z = alter_z(z, latent_factor_position, model)
 
         ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
         # mce()
-        df_links = None
+
         ls_idx_y = (-ts_batch_features).argsort()
         ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
         ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
@@ -593,10 +604,10 @@ def mce_batch(model, ts_batch_features, k=0):
             y_hat_k_highest = (-y_hat).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
             y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
 
-            y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), df_links)
-            y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), df_links)
+            y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
+            y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
 
-            single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata) #mce for n columns
+            single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             ls_dct_mce.append(single_mce)
 
             # print(single_mce)
@@ -652,9 +663,9 @@ if __name__ == '__main__':
     train = False
     base_path = 'results/models/vae/'
 
-    ls_epochs = [5]
+    ls_epochs = [500]
     ls_latent_factors = [3, 5, 10]
-    ls_disentangle_factors = [100, 10,1] #TODO: Maybe try out 10 here
+    ls_disentangle_factors = [100] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -663,10 +674,15 @@ if __name__ == '__main__':
     for epoch in ls_epochs:
         for lf in ls_latent_factors:
             for beta in ls_disentangle_factors:
+                train_tag = "train"
+                if(not train):
+                    train_tag = "test"
+
                 print("Processing model with: {} epochs, {} latent factors, {} beta".format(epoch, lf, beta))
-                exp_name = "{}_beta_{}_epochs_{}_lf".format(beta,epoch,lf)
-                model_name = exp_name+".ckpt"
-                attribute_name = exp_name+"_attributes.pickle"
+                exp_name = "{}_beta_{}_epochs_{}_lf".format(beta, epoch, lf)
+                wandb_name = exp_name + "_" + train_tag
+                model_name = exp_name + ".ckpt"
+                attribute_name = exp_name + "_attributes.pickle"
                 model_path = base_path + model_name
                 attribute_path = base_path + attribute_name
 
@@ -675,10 +691,8 @@ if __name__ == '__main__':
                 model_params['beta'] = beta
 
                 args.max_epochs = epoch
-                if(train):
-                    wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', 'train'],name=exp_name)
-                else:
-                    wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', 'test'], name=exp_name)
+
+                wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', train_tag], name=wandb_name)
 
                 trainer = pl.Trainer.from_argparse_args(args,
                                                         logger=wandb_logger, #False
@@ -686,6 +700,8 @@ if __name__ == '__main__':
                                                         weights_summary='full',
                                                         checkpoint_callback = False,
                 )
+
+
 
                 if(train):
                     print('<---------------------------------- VAE Training ---------------------------------->')
@@ -705,11 +721,14 @@ if __name__ == '__main__':
                 print('------ Load model -------')
                 test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
                 # test_model.test_size = model_params['test_size']
-                test_model.load_attributes(attribute_path)
+                test_model.load_attributes_and_files(attribute_path)
 
                 # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
                 print('------ Start Test ------')
+                import time
+                start = time.time()
                 trainer.test(test_model) #The test loop will not be used until you call.
+                print('Test time in seconds: {}'.format(time.time() - start))
 
                 # print(results)
 
