@@ -357,7 +357,7 @@ class VAE(pl.LightningModule):
         avg_mse_w_zeros = np.array([x['mse_w_zeros'] for x in outputs]).mean()
 
         tensorboard_logs = {'test_loss': avg_loss}
-        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_w_zeros':avg_rmse_w_zeros, 'mse': avg_mse, 'mse_wo_zeros': avg_mse_w_zeros, 'kld_matrix':self.kld_matrix})
+        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_w_zeros':avg_rmse_w_zeros, 'mse': avg_mse, 'mse_w_zeros': avg_mse_w_zeros})#, 'kld_matrix':self.kld_matrix
         # neptune_logger.experiment.log_metric('rmse', avg_rmse)
         # neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
         # neptune_logger.experiment.log_metric('mse', avg_mse)
@@ -393,7 +393,7 @@ class VAE(pl.LightningModule):
 
         kld_mean = torch.mean(0.5 * torch.sum(kld_latent_factors,dim=0))
         kld_weight = 1
-        # kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+        kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
         self.KLD = kld_mean * kld_weight
         self.dis_KLD = beta * self.KLD
         return BCE + self.dis_KLD  # beta = disentangle factor
@@ -486,7 +486,7 @@ def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
 
                     #Go through elements of a cell
                     for value in ls_y_latent_attribute_val: #same as characteristic
-                        if(value in ls_y_attribute_val):
+                        if(value in ls_y_attribute_val): #if no change, assign highest error
                             # mean += 1
                             mce +=1
                             # ls_y_latent_attribute_val.pop(value)
@@ -508,6 +508,73 @@ def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
                     print("Error Value:{}".format(value))
 
     return dct_mce
+
+def mce_shannon_inf(y_hat, y_hat_latent, dct_attribute_distribution):
+    # dct_dist = pickle.load(movies_distribution)
+
+    dct_mce = defaultdict(float)
+    for idx_vector in range(y_hat.shape[0]):
+        for attribute in y_hat:
+            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline']):
+                ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
+                ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
+                mean = 0
+                cnt_same = 0
+                mce=0
+                m_hat = 0
+                m = 0
+
+                try:
+                    #Two cases: Either cell contains multiple values, than it is a list
+                    #or it contains a single but not in a list. In that case put it in a list
+                    if(type(ls_y_latent_attribute_val) is not list):
+                        ls_y_latent_attribute_val = [ls_y_latent_attribute_val]
+                        ls_y_attribute_val =[ls_y_attribute_val]
+
+                    if (len(ls_y_attribute_val) == 0):
+                        break
+
+                    #Go through elements of a cell
+                    for value in ls_y_latent_attribute_val: #same as characteristic
+                        if(value in ls_y_attribute_val): #if no change, assign highest error
+                            # mean += 1
+                            m_hat +=1
+                            # ls_y_latent_attribute_val.pop(value)
+
+                        else:
+                            # characteristic = y_hat.loc[idx_vector, attribute]
+                            y_hat_latent_attribute_relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
+                            m_hat += y_hat_latent_attribute_relative_frequency
+                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
+                    #if no values are presented in the current cell than assign highest error
+                    if(len(ls_y_latent_attribute_val)==0):
+                        mce =15
+                    else:
+                        #rf = relative frequency
+
+                        ls_y_hat_rf = [dct_attribute_distribution[attribute]['relative'][str(val)] for val in ls_y_attribute_val]
+                        m = np.asarray(ls_y_hat_rf).mean()
+                        m_hat = m_hat/len(ls_y_latent_attribute_val)
+
+                        epsilon = 1e-10
+                        shannon_inf = - math.log(m_hat) + epsilon
+                        mce = 1/shannon_inf * math.exp(m_hat-m)
+                        if(mce < 0):
+                            print('fo')
+                        if(mce > 15):
+                            mce = 15
+                        if(math.isnan(mce)):
+                            print('nan detected')
+
+                    # print('Attribute: {}, mce:{}'.format(attribute, mce))
+
+                    dct_mce[attribute] = mce
+                except (KeyError, TypeError, ZeroDivisionError) as e:
+                    print("Error Value:{}".format(value))
+
+    return dct_mce
+
+
 
 def calculate_mean_of_ls_dict(ls_dict: list):
     dct_sum = defaultdict(float)
@@ -607,7 +674,8 @@ def mce_batch(model, ts_batch_features, k=0):
             y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
             y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
 
-            single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            single_mce = mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             ls_dct_mce.append(single_mce)
 
             # print(single_mce)
@@ -660,12 +728,12 @@ if __name__ == '__main__':
 
 
     #%%
-    train = False
+    train = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [500]
-    ls_latent_factors = [3, 5, 10]
-    ls_disentangle_factors = [100] #TODO: Maybe try out 10 here , 10,1
+    ls_epochs = [300]
+    ls_latent_factors = [10]
+    ls_disentangle_factors = [25] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -740,6 +808,13 @@ if __name__ == '__main__':
                 artifact = wandb.Artifact('Plots', type='result')
                 artifact.add_dir(experiment_path)#, name='images'
                 wandb_logger.experiment.log_artifact(artifact)
+
+                import os
+                working_directory = os.path.abspath(os.getcwd())
+                absolute_path = working_directory + "/" + experiment_path
+                ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
+                wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
+
 
                 #TODO Bring back in
 
