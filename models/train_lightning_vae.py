@@ -5,7 +5,7 @@ from __future__ import print_function
 import wandb
 from pytorch_lightning.loggers import WandbLogger
 
-
+import time
 import torch, torch.nn as nn, torchvision, torch.optim as optim
 import numpy as np
 
@@ -161,6 +161,7 @@ class VAE(pl.LightningModule):
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
 
+        self.experiment_path = self.hparams["experiment_path"]
         self.beta = self.hparams["beta"]
         self.avg_mce = 0.0
         self.train_dataset = None
@@ -196,9 +197,16 @@ class VAE(pl.LightningModule):
         self.np_mu_train = np.empty((0, self.no_latent_factors))
         self.np_logvar_train = np.empty((0, self.no_latent_factors))
 
-        self.dct_attribute_distribution = None # load relative frequency distributioon from dictionary (pickle it)
-        self.df_links = None
-        self.df_movies = None
+        # self.dct_attribute_distribution = None # load relative frequency distributioon from dictionary (pickle it)
+        self.dct_attribute_distribution = utils.load_json_as_dict(
+            'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
+
+        # self.df_links = None
+        # self.df_movies = None
+        self.df_links = pd.read_csv('../data/movielens/small/links.csv')
+        self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
+
+        self.bce = 0
 
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
@@ -271,29 +279,67 @@ class VAE(pl.LightningModule):
         # scheduler = StepLR(optimizer, step_size=1)
         return optimizer#, scheduler
 
+    def collect_z_values(self, ts_mu_chunk, ts_logvar_chunk):
+        start = time.time()
+        ls_grad_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
+        self.np_z_train = np.append(self.np_z_train, np.asarray(ls_grad_z.tolist()),
+                                    axis=0)  # TODO Describe in thesis that I get back a grad object instead of a pure tensor as it is in the test method since we are in the training method.
+        self.np_mu_train = np.append(self.np_mu_train, np.asarray(ts_mu_chunk.tolist()), axis=0)
+        self.np_logvar_train = np.append(self.np_logvar_train, np.asarray(ts_logvar_chunk.tolist()), axis=0)
+
+        print('Shape np_z_train: {}'.format(self.np_z_train.shape))
+        self.z_mean_train = self.np_z_train.mean(axis=0)
+        self.z_min_train = self.np_z_train.min(axis=0)
+        self.z_max_train = self.np_z_train.max(axis=0)
+
+        print('collect_z_values in seconds: {}'.format(time.time() - start))
+
     def training_step(self, batch, batch_idx):
 
         print('train step')
         ts_batch_user_features = batch
         recon_batch, ts_mu_chunk, ts_logvar_chunk = self.forward(ts_batch_user_features)  # sample data
         if(self.current_epoch == self.max_epochs-1):
-            print("Last rounf yipi")
-            ls_grad_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
-            self.np_z_train = np.append(self.np_z_train, np.asarray(ls_grad_z.tolist()), axis=0) #TODO Describe in thesis that I get back a grad object instead of a pure tensor as it is in the test method since we are in the training method.
-            self.np_mu_train = np.append(self.np_mu_train, np.asarray(ts_mu_chunk.tolist()), axis=0)
-            self.np_logvar_train = np.append(self.np_logvar_train, np.asarray(ts_logvar_chunk.tolist()), axis=0)
+            print("Last round yipi")
+            self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
 
+        if (self.current_epoch == 3 and batch_idx ==0):
+            self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
+            batch_mce = mce_batch(self, ts_batch_user_features, k=1)
 
+            utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld.json', self.experiment_path)
+        if (self.current_epoch == 3 and batch_idx ==1):
+            self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
+            batch_mce = mce_batch(self, ts_batch_user_features, k=1)
 
-        batch_loss = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+            utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld2.json', self.experiment_path)
+
+        batch_bce, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+        batch_loss = batch_bce + batch_kld
         self.ls_kld.append(self.KLD.tolist())
         loss = batch_loss/len(ts_batch_user_features)
+        bce = batch_bce/len(ts_batch_user_features)
 
-        # tensorboard_logs = {'train_loss': loss}
+        #Additional logs go into tensorboard_logs
         tensorboard_logs = {'train_loss': loss,
-                'kld': self.KLD}
-        return {'loss': loss, 'log': tensorboard_logs, 'foo':1}
+                'KLD-Train': self.KLD,
+                'BCE-Train': bce} #
+        return {'loss': loss, 'log': tensorboard_logs}
 
+
+    # def training_epoch_end(self, outputs):
+    #     print("Saving MCE before KLD is applied...")
+    #     if (self.current_epoch == 3):
+    #         ts_mu_chunk= outputs[0]['ts_mu_chunk'] #TODO 0 only means the first batch, thiis is actually wrong, it should be all of them
+    #         ts_logvar_chunk = outputs[0]['ts_logvar_chunk']
+    #         ts_batch_user_features = outputs[0]['ts_batch_user_features']
+    #
+    #         self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
+    #         batch_mce = mce_batch(self, ts_batch_user_features, k=1)
+    #
+    #         utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld.json', self.experiment_path)
+
+        # utils.save_dict_as_json(outputs[0]['mce'], 'mce_results_wo_kld.json', self.experiment_path)
 
 
     # def validation_step(self, batch, batch_idx):
@@ -301,11 +347,7 @@ class VAE(pl.LightningModule):
     #
     def test_step(self, batch, batch_idx):
         batch_mce =0
-        #TODO needs to be outside of test loop
-        print('Shape np_z_train: {}'.format(self.np_z_train.shape))
-        self.z_mean_train = self.np_z_train.mean(axis=0)
-        self.z_min_train = self.np_z_train.min(axis=0)
-        self.z_max_train = self.np_z_train.max(axis=0)
+
 
         print('test step')
 
@@ -326,18 +368,28 @@ class VAE(pl.LightningModule):
 
 
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
-        batch_loss = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies).item()
+        batch_bce, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+        batch_loss = batch_bce + kld
         batch_mce = mce_batch(self, ts_batch_user_features, k=1)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
-        loss = batch_loss / len(ts_batch_user_features)
+        loss = batch_loss.item() / len(ts_batch_user_features)
 
-        return {'test_loss': batch_loss,
+        bce = batch_bce/len(ts_batch_user_features)
+        tensorboard_logs = {'KLD-Test': kld,
+                            'BCE-test': bce}
+
+
+
+        return {'test_loss': loss,
                 'mce': batch_mce,
                 'rmse': batch_rmse,
                 'mse': batch_mse,
                 'rmse_w_zeros': batch_rmse_w_zeros,
-                'mse_w_zeros': batch_mse_w_zeros
+                'mse_w_zeros': batch_mse_w_zeros,
+                'log':tensorboard_logs,
+                'KLD-Test': kld,
+                            'BCE-Test': bce
                 }
 
         # test_loss /= len(test_loader.dataset)
@@ -346,9 +398,10 @@ class VAE(pl.LightningModule):
     def test_epoch_end(self, outputs):
         # avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
-
+        bce_test = np.array([x['BCE-Test'] for x in outputs])
+        kld_test =np.array([x['KLD-Test'] for x in outputs])
         # ls_mce = {x['mce'] for x in outputs}
-        utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json')
+        utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json', self.experiment_path) #TODO This is wrong as only one batch is processed, should be all
         # avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
 
         avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
@@ -356,8 +409,18 @@ class VAE(pl.LightningModule):
         avg_mse = np.array([x['mse'] for x in outputs]).mean()
         avg_mse_w_zeros = np.array([x['mse_w_zeros'] for x in outputs]).mean()
 
-        tensorboard_logs = {'test_loss': avg_loss}
-        wandb_logger.log_metrics({'rmse': avg_rmse, 'rmse_w_zeros':avg_rmse_w_zeros, 'mse': avg_mse, 'mse_w_zeros': avg_mse_w_zeros})#, 'kld_matrix':self.kld_matrix
+        tensorboard_logs = {'test_loss': avg_loss, 'BCE-Test':bce_test,'KLD-Test': kld_test }
+        assert len(bce_test)==len(kld_test)
+        for i in range(0, len(bce_test)):
+            wandb_logger.log_metrics({'BCE-Test': bce_test[i],'KLD-Test': kld_test[i]} )
+
+
+
+
+        wandb_logger.log_metrics({'rmse': avg_rmse,
+                                  'rmse_w_zeros':avg_rmse_w_zeros,
+                                  'mse': avg_mse,
+                                  'mse_w_zeros': avg_mse_w_zeros})#, 'kld_matrix':self.kld_matrix
         # neptune_logger.experiment.log_metric('rmse', avg_rmse)
         # neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
         # neptune_logger.experiment.log_metric('mse', avg_mse)
@@ -365,11 +428,11 @@ class VAE(pl.LightningModule):
 
         # self.avg_mce = avg_mce
 
-        return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse}#, , 'mce':avg_mce
+        return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse, 'BCE-Test':bce_test,'KLD-test': kld_test }#, , 'mce':avg_mce
 
     # Reconstruction + KL divergence losses summed over all elements and batch
     def sigmoid_annealing(self, beta, epoch):
-        epoch_threshold = 10
+        epoch_threshold = 50
         stretch_factor = 0.5
         if(epoch < epoch_threshold):
             return 0
@@ -392,11 +455,15 @@ class VAE(pl.LightningModule):
 
 
         kld_mean = torch.mean(0.5 * torch.sum(kld_latent_factors,dim=0))
-        kld_weight = 1
-        kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+        if(self.training):
+            kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+        else:
+            kld_weight = beta
+
         self.KLD = kld_mean * kld_weight
         self.dis_KLD = beta * self.KLD
-        return BCE + self.dis_KLD  # beta = disentangle factor
+
+        return BCE, self.dis_KLD  # beta = disentangle factor
 
 
     def calculate_batch_metrics(self, recon_batch, ts_batch_user_features):
@@ -444,14 +511,14 @@ class VAE(pl.LightningModule):
 
         self.dct_attribute_distribution = utils.load_json_as_dict(
             'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
-        self.df_links = pd.read_csv('../data/movielens/small/links.csv')
-        self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
-        # self.z_max_train = dct_attributes['z_max_train']
+
+        self.z_max_train = dct_attributes['z_max_train']
         print('Attributes loaded')
 
     def save_attributes(self, path):
         dct_attributes = {'np_z_train':self.np_z_train,
-                          'ls_kld':self.ls_kld}#, 'z_max_train': self.z_max_train
+                          'ls_kld':self.ls_kld,
+                          'z_max_train': self.z_max_train}
         with open(path, 'wb') as handle:
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
@@ -594,7 +661,8 @@ def match_metadata(indezes, df_links, df_movies):
     # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
     global dct_index2itemId
-
+    ls_filter = ['languages','directors','writer', 'writers','countries','runtimes', 'aspect_ratio', 'color_info', 'sound_mix', 'plot_outline', 'title', 'animation_department','casting_department', 'music_department','plot','set_decorators', 'script_department']
+    df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
     ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes] #ml = MovieLens
 
 
@@ -607,7 +675,7 @@ def match_metadata(indezes, df_links, df_movies):
         print('There were items recommended that have not been seen by any users in the dataset. Trained on 9725 movies but 193610 are available so df_links has only 9725 to pick from')
     assert len(imdb_ids) == len(indezes)
     #df_links.loc[df_links["movieId"] == indezes]
-    df_w_metadata = df_movies.loc[df_movies['imdbid'].isin(imdb_ids)]
+    df_w_metadata = df_movies_curated.loc[df_movies_curated['imdbid'].isin(imdb_ids)]
 
     return df_w_metadata
 
@@ -716,6 +784,7 @@ if __name__ == '__main__':
                     "test_size": 0.2,#TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta":1,
+                    
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -731,9 +800,9 @@ if __name__ == '__main__':
     train = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [300]
-    ls_latent_factors = [10]
-    ls_disentangle_factors = [25] #TODO: Maybe try out 10 here , 10,1
+    ls_epochs = [100]
+    ls_latent_factors = [5]
+    ls_disentangle_factors = [5] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -754,6 +823,10 @@ if __name__ == '__main__':
                 model_path = base_path + model_name
                 attribute_path = base_path + attribute_name
 
+                experiment_path = utils.create_experiment_directory()
+
+
+                model_params['experiment_path'] = experiment_path
                 model_params['max_epochs'] = epoch
                 model_params['latent_dim'] = lf
                 model_params['beta'] = beta
@@ -761,7 +834,6 @@ if __name__ == '__main__':
                 args.max_epochs = epoch
 
                 wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', train_tag], name=wandb_name)
-
                 trainer = pl.Trainer.from_argparse_args(args,
                                                         logger=wandb_logger, #False
                                                         gpus=0,
@@ -775,6 +847,8 @@ if __name__ == '__main__':
                     print('<---------------------------------- VAE Training ---------------------------------->')
                     print("Running with the following configuration: \n{}".format(args))
                     model = VAE(model_params)
+                    wandb_logger.watch(model, log='gradients', log_freq=100)
+
                     utils.print_nn_summary(model)
 
                     print('------ Start Training ------')
@@ -802,7 +876,6 @@ if __name__ == '__main__':
 
                 # %%
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
-                experiment_path = utils.create_experiment_directory()
                 utils.plot_results(test_model, experiment_path,dct_param )
 
                 artifact = wandb.Artifact('Plots', type='result')
@@ -811,7 +884,7 @@ if __name__ == '__main__':
 
                 import os
                 working_directory = os.path.abspath(os.getcwd())
-                absolute_path = working_directory + "/" + experiment_path
+                absolute_path = working_directory + "/" + experiment_path + "images/"
                 ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
                 wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
 

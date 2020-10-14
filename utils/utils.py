@@ -19,10 +19,12 @@ def create_experiment_directory():
     print("date and time =", dt_string)
 
     # define the name of the directory to be created
-    path = "results/images/" + dt_string + "/"
+    path = "results/generated/" + dt_string + "/"
 
     try:
         os.mkdir(path)
+        os.mkdir(path+"images/")
+
     except OSError:
         print("Creation of the directory %s failed" % path)
     else:
@@ -75,8 +77,13 @@ def load_json_as_dict(name):
         id2names = json.load(file)
         return id2names
 
-def save_dict_as_json(dct, name):
-    with open('../data/generated/' + name, 'w') as file:
+def save_dict_as_json(dct, name, path):
+    if(path):
+        path = path
+    else:
+        path = '../data/generated/'
+
+    with open(path + name, 'w') as file:
         json.dump(dct, file, indent=4, sort_keys=True)
 
 def ls_columns_to_dfrows(ls_val, column_base_name):
@@ -145,6 +152,29 @@ def plot_2d_pca(np_x, title, experiment_path, dct_params):
     save_figure(fig, experiment_path,'pca', dct_params)
     plt.show()
 
+def plot_mce_wo_kld(df_mce, title, experiment_path, dct_params):
+    plt.figure(figsize=(30, 20))
+    df_mce['category'] = df_mce.index
+    df_piv = df_mce.melt(id_vars='category', var_name='latent_factor', value_name='mce')
+    fig = sns.catplot(x='latent_factor',
+                      y='mce',
+                      hue='category',
+                      data=df_piv,
+                      kind='bar',
+                      legend_out=False,
+                      aspect=1.65
+                      )
+    plt.title(title, fontsize=17, y=1.08)
+
+    plt.legend(bbox_to_anchor=(0.5, -0.25),  # 1.05, 1
+               loc='upper center',  # 'center left'
+               borderaxespad=0.,
+               fontsize=8,
+               ncol=5)
+
+    plt.tight_layout()
+    save_figure(fig, experiment_path,'mce_latent_factorwo_kld', dct_params)
+    plt.show()
 
 def plot_mce_by_latent_factor(df_mce, title, experiment_path, dct_params):
 
@@ -214,21 +244,26 @@ def plot_results(model, experiment_path, dct_params):
 
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
-    # df_mce_results = pd.read_json('../data/generated/mce_results.json')
+    df_mce_results = pd.read_json(experiment_path+'/mce_results.json')#../data/generated/mce_results.json'
+    df_mce_wo_kld_results = pd.read_json(experiment_path+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
+    df_mce_wo_kld_results2 = pd.read_json(experiment_path+'/mce_results_wo_kld2.json')#../data/generated/mce_results.json'
+    exp_path_img = experiment_path + "images/"
 
     # Apply PCA on Data an plot it afterwards
     np_z_pca = apply_pca(model.np_z_test)
-    plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), experiment_path,dct_params)
+    plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
 
     # Plot the probability distribution of latent layer
     df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ")
-    plot_distribution(df_melted, 'Probability Distribution of Laten Factors (z)', experiment_path,dct_params)
-    plot_catplot(df_melted, "Latent Factors", experiment_path,dct_params)
-    plot_swarmplot(df_melted, "Latent Factors", experiment_path,dct_params)
-    plot_violinplot(df_melted, "Latent Factors", experiment_path,dct_params)
-    # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', experiment_path, dct_params) ##make a copy otherwise the original df is altered,
-    # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', experiment_path, dct_params)##make a copy otherwise the original df is altered,
-    plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', experiment_path, dct_params)
-    plot_pairplot_lf(model, 'Correlation of Latent Factors', experiment_path, dct_params)
+    plot_distribution(df_melted, 'Probability Distribution of Laten Factors (z)', exp_path_img,dct_params)
+    plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo/ KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo/ KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
+    plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
+    plot_pairplot_lf(model, 'Correlation of Latent Factors', exp_path_img, dct_params)
 
     # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries
