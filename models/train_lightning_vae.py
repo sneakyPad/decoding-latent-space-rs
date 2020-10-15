@@ -207,6 +207,12 @@ class VAE(pl.LightningModule):
         self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
         self.bce = 0
+        self.sigmoid_annealing_threshold = self.hparams['sigmoid_annealing_threshold']
+        self.mce_batch = None
+
+        self.z_mean_train = []
+        self.z_min_train = []
+        self.z_max_train = []
 
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
@@ -288,13 +294,44 @@ class VAE(pl.LightningModule):
         self.np_logvar_train = np.append(self.np_logvar_train, np.asarray(ts_logvar_chunk.tolist()), axis=0)
 
         print('Shape np_z_train: {}'.format(self.np_z_train.shape))
-        self.z_mean_train = self.np_z_train.mean(axis=0)
-        self.z_min_train = self.np_z_train.min(axis=0)
-        self.z_max_train = self.np_z_train.max(axis=0)
+
+
+        z_mean = self.np_z_train.mean(axis=0)
+        z_min = self.np_z_train.min(axis=0)
+        z_max = self.np_z_train.max(axis=0)
+
+        if(len(self.z_mean_train) == 0):
+            self.z_mean_train = z_mean
+            self.z_min_train = z_min
+            self.z_max_train = z_max
+
+        else:
+            self.z_mean_train = (z_mean + self.z_mean_train) / 2
+            self.z_max_train = np.amax(np.vstack((self.z_max_train, z_max)), axis=0) #Stack old and new together and find the max
+            self.z_min_train = np.amin(np.vstack((self.z_min_train, z_min)), axis=0)
+            # if (z_min < self.z_min_train):
+            #     self.z_min_train = z_min
+            #
+            # if (z_max > self.z_max_train):
+            #     self.z_max_train = z_max
+
 
         print('collect_z_values in seconds: {}'.format(time.time() - start))
 
+    def average_mce_batch(self, mce_mini_batch):
+        if (self.mce_batch == None):
+            self.mce_batch = mce_mini_batch
+        else:
+            for key_lf, mce_lf in self.mce_batch.items():
+                for key, val in mce_lf.items():
+                    new_val = mce_mini_batch[key_lf].get(key)
+                    if(new_val):
+                        self.mce_batch[key_lf][key] = (new_val + val)/2
+
+
+
     def training_step(self, batch, batch_idx):
+        mce_minibatch=None
 
         print('train step')
         ts_batch_user_features = batch
@@ -303,16 +340,15 @@ class VAE(pl.LightningModule):
             print("Last round yipi")
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
 
-        if (self.current_epoch == 3 and batch_idx ==0):
+        if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-            batch_mce = mce_batch(self, ts_batch_user_features, k=1)
+            mce_minibatch = mce_batch(self, ts_batch_user_features, k=1)
+            self.average_mce_batch(mce_minibatch)
 
-            utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld.json', self.experiment_path)
-        if (self.current_epoch == 3 and batch_idx ==1):
-            self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-            batch_mce = mce_batch(self, ts_batch_user_features, k=1)
-
-            utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld2.json', self.experiment_path)
+        # if (self.current_epoch == self.sigmoid_annealing_threshold and batch_idx ==1):
+        #     self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
+        #     batch_mce = mce_batch(self, ts_batch_user_features, k=1)
+        #     utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld2.json', self.experiment_path)
 
         batch_bce, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
         batch_loss = batch_bce + batch_kld
@@ -323,12 +359,16 @@ class VAE(pl.LightningModule):
         #Additional logs go into tensorboard_logs
         tensorboard_logs = {'train_loss': loss,
                 'KLD-Train': self.KLD,
-                'BCE-Train': bce} #
+                'BCE-Train': bce,
+                            "mce_minibatch": mce_minibatch} #
         return {'loss': loss, 'log': tensorboard_logs}
 
 
-    # def training_epoch_end(self, outputs):
-    #     print("Saving MCE before KLD is applied...")
+    def training_epoch_end(self, outputs):
+        print("Saving MCE before KLD is applied...")
+        if(self.current_epoch == self.sigmoid_annealing_threshold ):
+            utils.save_dict_as_json(self.mce_batch, 'mce_results_wo_kld.json', self.experiment_path)
+        return {}
     #     if (self.current_epoch == 3):
     #         ts_mu_chunk= outputs[0]['ts_mu_chunk'] #TODO 0 only means the first batch, thiis is actually wrong, it should be all of them
     #         ts_logvar_chunk = outputs[0]['ts_logvar_chunk']
@@ -432,12 +472,12 @@ class VAE(pl.LightningModule):
 
     # Reconstruction + KL divergence losses summed over all elements and batch
     def sigmoid_annealing(self, beta, epoch):
-        epoch_threshold = 50
+
         stretch_factor = 0.5
-        if(epoch < epoch_threshold):
+        if(epoch < self.sigmoid_annealing_threshold):
             return 0
         else:
-            kld_weight = beta/(1+ math.exp(-epoch * stretch_factor + epoch_threshold)) #epoch_threshold moves e function along the x-axis
+            kld_weight = beta/(1+ math.exp(-epoch * stretch_factor + self.sigmoid_annealing_threshold)) #epoch_threshold moves e function along the x-axis
             return kld_weight
 
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
@@ -784,7 +824,7 @@ if __name__ == '__main__':
                     "test_size": 0.2,#TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta":1,
-                    
+                    "sigmoid_annealing_threshold": 2,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -800,8 +840,8 @@ if __name__ == '__main__':
     train = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [100]
-    ls_latent_factors = [5]
+    ls_epochs = [6]
+    ls_latent_factors = [3]
     ls_disentangle_factors = [5] #TODO: Maybe try out 10 here , 10,1
 
 

@@ -173,7 +173,7 @@ def plot_mce_wo_kld(df_mce, title, experiment_path, dct_params):
                ncol=5)
 
     plt.tight_layout()
-    save_figure(fig, experiment_path,'mce_latent_factorwo_kld', dct_params)
+    save_figure(fig, experiment_path,title, dct_params)
     plt.show()
 
 def plot_mce_by_latent_factor(df_mce, title, experiment_path, dct_params):
@@ -246,7 +246,7 @@ def plot_results(model, experiment_path, dct_params):
     # sns.set_theme(style="ticks")
     df_mce_results = pd.read_json(experiment_path+'/mce_results.json')#../data/generated/mce_results.json'
     df_mce_wo_kld_results = pd.read_json(experiment_path+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
-    df_mce_wo_kld_results2 = pd.read_json(experiment_path+'/mce_results_wo_kld2.json')#../data/generated/mce_results.json'
+    # df_mce_wo_kld_results2 = pd.read_json(experiment_path+'/mce_results_wo_kld2.json')#../data/generated/mce_results.json'
     exp_path_img = experiment_path + "images/"
 
     # Apply PCA on Data an plot it afterwards
@@ -260,8 +260,8 @@ def plot_results(model, experiment_path, dct_params):
     plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
-    plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo/ KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
-    plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo/ KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
     plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
     plot_pairplot_lf(model, 'Correlation of Latent Factors', exp_path_img, dct_params)
