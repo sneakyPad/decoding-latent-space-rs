@@ -42,7 +42,7 @@ from sklearn import manifold, decomposition
 
 import pickle
 import wandb
-
+from scipy.stats import entropy
 
 #ToDo EDA:
 # - Long Tail graphics
@@ -69,6 +69,8 @@ seed = 42
 torch.manual_seed(seed)
 
 
+ig_m_cnt = 0
+ig_m_hat_cnt =0
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
 ##Shape: (n_user, n_items)
@@ -161,7 +163,8 @@ class VAE(pl.LightningModule):
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
 
-        self.experiment_path = self.hparams["experiment_path"]
+        self.experiment_path_train = conf["experiment_path"]
+        self.experiment_path_test = self.experiment_path_train
         self.beta = self.hparams["beta"]
         self.avg_mce = 0.0
         self.train_dataset = None
@@ -208,12 +211,15 @@ class VAE(pl.LightningModule):
 
         self.bce = 0
         self.sigmoid_annealing_threshold = self.hparams['sigmoid_annealing_threshold']
-        self.mce_batch = None
+        self.mce_batch_train = None
+        self.mce_batch_test = None
 
         self.z_mean_train = []
         self.z_min_train = []
         self.z_max_train = []
 
+        # self.ig_m_hat_cnt = 0
+        # self.ig_m_cnt = 0
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
         #     print('attributes loaded')
@@ -318,15 +324,16 @@ class VAE(pl.LightningModule):
 
         print('collect_z_values in seconds: {}'.format(time.time() - start))
 
-    def average_mce_batch(self, mce_mini_batch):
-        if (self.mce_batch == None):
-            self.mce_batch = mce_mini_batch
+    def average_mce_batch(self, mce_batch, mce_mini_batch):
+        if (mce_batch == None):
+            mce_batch = mce_mini_batch
         else:
-            for key_lf, mce_lf in self.mce_batch.items():
+            for key_lf, mce_lf in mce_batch.items():
                 for key, val in mce_lf.items():
                     new_val = mce_mini_batch[key_lf].get(key)
                     if(new_val):
-                        self.mce_batch[key_lf][key] = (new_val + val)/2
+                        mce_batch[key_lf][key] = (new_val + val)/2
+        return mce_batch
 
 
 
@@ -343,7 +350,7 @@ class VAE(pl.LightningModule):
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
             mce_minibatch = mce_batch(self, ts_batch_user_features, k=1)
-            self.average_mce_batch(mce_minibatch)
+            self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
         # if (self.current_epoch == self.sigmoid_annealing_threshold and batch_idx ==1):
         #     self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
@@ -359,15 +366,14 @@ class VAE(pl.LightningModule):
         #Additional logs go into tensorboard_logs
         tensorboard_logs = {'train_loss': loss,
                 'KLD-Train': self.KLD,
-                'BCE-Train': bce,
-                            "mce_minibatch": mce_minibatch} #
+                'BCE-Train': bce} #
         return {'loss': loss, 'log': tensorboard_logs}
 
 
     def training_epoch_end(self, outputs):
         print("Saving MCE before KLD is applied...")
         if(self.current_epoch == self.sigmoid_annealing_threshold ):
-            utils.save_dict_as_json(self.mce_batch, 'mce_results_wo_kld.json', self.experiment_path)
+            utils.save_dict_as_json(self.mce_batch_train, 'mce_results_wo_kld.json', self.experiment_path_train)
         return {}
     #     if (self.current_epoch == 3):
     #         ts_mu_chunk= outputs[0]['ts_mu_chunk'] #TODO 0 only means the first batch, thiis is actually wrong, it should be all of them
@@ -410,7 +416,9 @@ class VAE(pl.LightningModule):
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
         batch_bce, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
         batch_loss = batch_bce + kld
-        batch_mce = mce_batch(self, ts_batch_user_features, k=1)
+
+        mce_minibatch = mce_batch(self, ts_batch_user_features, k=1)
+        self.mce_batch_test = self.average_mce_batch(self.mce_batch_test, mce_minibatch)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss.item() / len(ts_batch_user_features)
@@ -422,7 +430,6 @@ class VAE(pl.LightningModule):
 
 
         return {'test_loss': loss,
-                'mce': batch_mce,
                 'rmse': batch_rmse,
                 'mse': batch_mse,
                 'rmse_w_zeros': batch_rmse_w_zeros,
@@ -441,7 +448,8 @@ class VAE(pl.LightningModule):
         bce_test = np.array([x['BCE-Test'] for x in outputs])
         kld_test =np.array([x['KLD-Test'] for x in outputs])
         # ls_mce = {x['mce'] for x in outputs}
-        utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json', self.experiment_path) #TODO This is wrong as only one batch is processed, should be all
+        # utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json', self.experiment_path) #TODO This is wrong as only one batch is processed, should be all
+        utils.save_dict_as_json(self.mce_batch_test, 'mce_results.json', self.experiment_path_test)
         # avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
 
         avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
@@ -616,6 +624,123 @@ def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
 
     return dct_mce
 
+def shannon_inf_score(m, m_hat):
+    epsilon = 1e-10
+    shannon_inf = - math.log(m_hat) + epsilon
+    mce = 1 / shannon_inf * math.exp(m_hat - m)
+
+    if (mce < 0):
+        print('fo')
+    if (mce > 15):
+        mce = 15
+    if (math.isnan(mce)):
+        print('nan detected')
+
+
+    return mce
+
+def calculate_normalized_entropy(population):
+    H=0
+    H_n =0
+    if(len(population) == 1): #only one attribute is present
+        H = - (population[0] * math.log(population[0], 2))
+        return H
+    else:
+        for rf in population:
+            H = - (rf * math.log(rf, 2))
+            H_n += H / math.log(len(population), 2)
+
+        H_scipy = entropy(population, base=2)
+        print(H_scipy, H_n)
+        assert H_scipy == H_n
+
+        return H_n
+
+def information_gain(m, m_hat, dct_population):
+    global ig_m_cnt
+    global ig_m_hat_cnt
+    ls_population_rf = [val for key, val in dct_population.items()]
+    population_entropy = calculate_normalized_entropy(ls_population_rf)
+
+    if(type(m) is not list):
+        m = [m]
+    if(type(m_hat) is not list):
+        m_hat = [m_hat]
+
+    m_entropy = calculate_normalized_entropy(m)
+    m_hat_entropy = calculate_normalized_entropy(m_hat)
+
+    ig_m = population_entropy - m_entropy
+    ig_m_hat = population_entropy - m_hat_entropy
+
+    if(ig_m_hat > ig_m): #This means it was more unlikely so we gain information. Goal is to get to 1
+        ig_m_hat_cnt +=1
+        # return ig_m_hat
+
+    ig_m_cnt += 1
+    return ig_m - ig_m_hat
+
+def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
+    # dct_dist = pickle.load(movies_distribution)
+
+    dct_mce = defaultdict(float)
+    for idx_vector in range(y_hat.shape[0]):
+        for attribute in y_hat:
+            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline']):
+                ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
+                ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
+                mean = 0
+                cnt_same = 0
+                mce=0
+                m_hat = 0
+                m = 0
+
+                try:
+                    #Two cases: Either cell contains multiple values, than it is a list
+                    #or it contains a single but not in a list. In that case put it in a list
+                    if(type(ls_y_latent_attribute_val) is not list):
+                        ls_y_latent_attribute_val = [ls_y_latent_attribute_val]
+                        ls_y_attribute_val =[ls_y_attribute_val]
+
+                    if (len(ls_y_attribute_val) == 0):
+                        break
+
+                    ls_m_hat_rf=[]
+                    #Go through elements of a cell
+                    for value in ls_y_latent_attribute_val: #same as characteristic
+                        if(value in ls_y_attribute_val): #if no change, assign highest error
+                            # mean += 1
+                            m_hat +=1
+                            # ls_y_latent_attribute_val.pop(value)
+
+                        else:
+                            # characteristic = y_hat.loc[idx_vector, attribute]
+                            y_hat_latent_attribute_relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
+                            m_hat += y_hat_latent_attribute_relative_frequency
+                            ls_m_hat_rf.append(y_hat_latent_attribute_relative_frequency)
+                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
+                    #if no values are presented in the current cell than assign highest error
+                    if(len(ls_y_latent_attribute_val)==0):
+                        mce =15
+                    else:
+                        #rf = relative frequency
+                        dct_population = dct_attribute_distribution[attribute]['relative']
+
+                        ls_y_hat_rf = [dct_population[str(val)] for val in ls_y_attribute_val]
+                        m = np.asarray(ls_y_hat_rf).mean()
+                        m_hat = m_hat/len(ls_y_latent_attribute_val)
+
+                        mce = information_gain(ls_y_hat_rf, ls_m_hat_rf, dct_population)
+                        # mce = shannon_inf_score(m, m_hat)
+
+                    dct_mce[attribute] = mce
+                except (KeyError, TypeError, ZeroDivisionError) as e:
+                    print("Error Value:{}".format(value))
+
+    return dct_mce
+
+
+
 def mce_shannon_inf(y_hat, y_hat_latent, dct_attribute_distribution):
     # dct_dist = pickle.load(movies_distribution)
 
@@ -663,17 +788,7 @@ def mce_shannon_inf(y_hat, y_hat_latent, dct_attribute_distribution):
                         m = np.asarray(ls_y_hat_rf).mean()
                         m_hat = m_hat/len(ls_y_latent_attribute_val)
 
-                        epsilon = 1e-10
-                        shannon_inf = - math.log(m_hat) + epsilon
-                        mce = 1/shannon_inf * math.exp(m_hat-m)
-                        if(mce < 0):
-                            print('fo')
-                        if(mce > 15):
-                            mce = 15
-                        if(math.isnan(mce)):
-                            print('nan detected')
-
-                    # print('Attribute: {}, mce:{}'.format(attribute, mce))
+                        mce = shannon_inf_score(m, m_hat)
 
                     dct_mce[attribute] = mce
                 except (KeyError, TypeError, ZeroDivisionError) as e:
@@ -783,7 +898,8 @@ def mce_batch(model, ts_batch_features, k=0):
             y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
 
             # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            single_mce = mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # single_mce = mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            single_mce = mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             ls_dct_mce.append(single_mce)
 
             # print(single_mce)
@@ -821,10 +937,10 @@ if __name__ == '__main__':
     #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.2,#TODO Change test size to 0.33
+                    "test_size": 0.1,#TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta":1,
-                    "sigmoid_annealing_threshold": 2,
+                    "sigmoid_annealing_threshold": 40,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -840,9 +956,9 @@ if __name__ == '__main__':
     train = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [6]
-    ls_latent_factors = [3]
-    ls_disentangle_factors = [5] #TODO: Maybe try out 10 here , 10,1
+    ls_epochs = [150]
+    ls_latent_factors = [5]
+    ls_disentangle_factors = [10] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -895,6 +1011,9 @@ if __name__ == '__main__':
                     trainer.fit(model)
 
                     kld_matrix = model.KLD
+                    print('% altering has provided information gain:{}'.format(
+                        int(ig_m_hat_cnt) / (int(ig_m_cnt) + int(ig_m_hat_cnt))))
+
                     # model.dis_KLD
                     print('------ Saving model ------')
                     trainer.save_checkpoint(model_path)
@@ -904,14 +1023,17 @@ if __name__ == '__main__':
                 test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
                 # test_model.test_size = model_params['test_size']
                 test_model.load_attributes_and_files(attribute_path)
+                test_model.experiment_path_test = experiment_path
 
                 # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
                 print('------ Start Test ------')
                 import time
                 start = time.time()
+                ig_m_hat_cnt = 0
+                ig_m_cnt = 0
                 trainer.test(test_model) #The test loop will not be used until you call.
                 print('Test time in seconds: {}'.format(time.time() - start))
-
+                print('% altering has provided information gain:{}'.format( int(ig_m_hat_cnt)/(int(ig_m_cnt)+int(ig_m_hat_cnt) )))
                 # print(results)
 
                 # %%
