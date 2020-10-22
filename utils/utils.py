@@ -9,6 +9,130 @@ from sklearn.metrics import mean_squared_error
 from torchsummaryX import summary
 from datetime import datetime
 import os
+import random
+import numpy as np
+from tqdm import tqdm
+import ast
+import itertools
+from collections import Counter
+from time import sleep
+def my_eval(expression):
+    try:
+        return ast.literal_eval(str(expression))
+    except SyntaxError: #e.g. a ":" or "(", which is interpreted by eval as command
+            return expression
+    except ValueError: #e.g. an entry is nan, in that case just return an empty string
+        return ''
+
+
+def compute_relative_frequency(df_meta):
+    print('Compute relative frequency for all columns and their attributes...')
+    #Goal is:
+    #Cast:
+        # Tom Hanks: 0,3%
+        # Matt Damon: 0,2%
+    # fpp =np.vstack(df_meta['genres'].values)
+    # np_array = df_meta['genres'].values
+    # tmp_list = []
+    # for element in np_array:
+    #     tmp_list.extend(eval(element))
+
+    # print(fpp)len_crawled_ids
+    #TODO Implement my eval: https://stackoverflow.com/questions/31423864/check-if-string-can-be-evaluated-with-eval-in-python
+    dct_rel_freq={}
+    for column in tqdm(df_meta.columns, total=len(df_meta.columns)):
+        print('Column: {}'.format(column))
+    #     ls_ls_casted=[]
+    #     for str_elem in df_meta[column].values:
+    #         str_elem= str(str_elem)#.replace(':','').replace('(','').replace(')','')
+    #         try:
+    #             ls_ls_casted.append(ast.literal_eval(str_elem))
+    #         except SyntaxError:
+    #             ls_ls_casted.append(str_elem)
+
+        ls_ls_casted = [my_eval(str_elem) for str_elem in df_meta[column].values] #cast encoded lists to real list
+        # ls_ls_casted = [json.loads(str(str_elem)) for str_elem in df_meta[column].values] #cast encoded lists to real list
+        try:
+            if(type(ls_ls_casted[0]) == list):
+                merged_res = itertools.chain(*ls_ls_casted) #join all lists to one single list
+                ls_merged = list(merged_res)
+            else:
+                ls_merged = ls_ls_casted
+            if(column not in ['Unnamed: 0', 'unnamed_0']):
+                c = Counter(ls_merged)
+                dct_counter = {str(key): value for key, value in c.items()}
+                dct_rel_freq[column]={}
+                dct_rel_freq[column]['absolute'] = dct_counter
+                # print('Column: {}\n\t absolute:{}'.format(dct_rel_freq[column]['absolute']))
+
+                dct_rel_attribute = {str(key): value / sum(c.values()) for key, value in dct_counter.items()} #TODO create a dict with key val
+                dct_rel_freq[column]['relative'] = dct_rel_attribute
+                # print('\t relative:{}'.format(dct_rel_freq[column]['relative']))
+
+        except TypeError:
+            print('TypeError for Column:{} and ls_ls_casted:{} and *ls_ls_casted:{}'.format(column, ls_ls_casted, *ls_ls_casted))
+
+
+    return dct_rel_freq
+    # save_dict_as_json(dct_rel_freq, 'relative_frequency.json')
+
+
+
+
+def create_synthetic_data():
+    no_samples =50
+    genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama', 'Romance','Comedy', 'War','Adventure', 'Family']
+    year = ['1980', '1990', '2000', '2010', '2020']
+    stars = ['Tom Hanks', 'Tim Allen', 'Don Rickles','Robin Williams', 'Kirsten Dunst', 'Bonnie Hunt']
+    rating = ['7', '8', '9', '10']
+
+    dct_base_data ={'genres': genres, 'year': year, 'stars': stars, 'rating': rating}
+    ls_movies = []
+
+    #genre-users
+    ls_attributes = ['genres', 'year', 'stars', 'rating']
+    n_users = 600
+    n_movies = len(ls_attributes * no_samples)
+    np_user_item = np.zeros((n_users,n_movies),dtype="float32")
+
+
+    for attribute in ls_attributes:
+        for i in range(no_samples):
+            movie = {}
+            movie[attribute] = [dct_base_data[attribute][0]]
+
+            for other_attribute in ls_attributes:
+                if(other_attribute == attribute):
+                    continue
+                if(other_attribute == 'rating' or other_attribute == 'year'):
+                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=1)
+                else:
+                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=2)
+
+
+            ls_movies.append(movie)
+
+
+    df_synthentic_data = pd.DataFrame(columns=['genres', 'year', 'stars', 'rating'], data=ls_movies)
+    df_synthentic_data['id'] = df_synthentic_data.index
+    df_synthentic_data.to_csv('../data/generated/syn.csv', index=False)
+
+    no_users_attribute_specific = int(n_users / len(ls_attributes))
+    for i in range(0, len(ls_attributes)):
+        end = (i+1) * no_samples
+        start = end - no_samples
+        sr_ids = df_synthentic_data.loc[start:end]['id']
+
+        for idx in range(no_users_attribute_specific):
+            no_of_seen_items = int(random.uniform(20, 40))
+            seen = random.sample(list(sr_ids.values), k=no_of_seen_items)
+            user_idx = i * no_users_attribute_specific + idx
+            np_user_item[user_idx,seen] = 1
+
+    # print(ls_movies)
+
+    return np_user_item
+
 
 def create_experiment_directory():
     # datetime object containing current date and time
@@ -42,8 +166,8 @@ def calculate_metrics(y_actual, y_predicted):
     # print("MSE :{}".format(mse))
     return rmse,mse
 
-def print_nn_summary(model):
-    example_input = torch.zeros((1, 9724))
+def print_nn_summary(model, size):
+    example_input = torch.zeros((1, size))
     summary(model, example_input)
 
 def save_figure(fig, experiment_path, name, dct_params):
@@ -77,7 +201,7 @@ def load_json_as_dict(name):
         id2names = json.load(file)
         return id2names
 
-def save_dict_as_json(dct, name, path):
+def save_dict_as_json(dct, name, path=None):
     if(path):
         path = path
     else:
@@ -240,14 +364,14 @@ def plot_pairplot_lf(model, title, experiment_path, dct_params):
 
 
 
-def plot_results(model, experiment_path, dct_params):
+def plot_results(model, experiment_path_test, experiment_path_train, dct_params):
 
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
-    df_mce_results = pd.read_json(experiment_path+'/mce_results.json')#../data/generated/mce_results.json'
-    df_mce_wo_kld_results = pd.read_json(experiment_path+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
+    df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
+    df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
     # df_mce_wo_kld_results2 = pd.read_json(experiment_path+'/mce_results_wo_kld2.json')#../data/generated/mce_results.json'
-    exp_path_img = experiment_path + "images/"
+    exp_path_img = experiment_path_test + "images/"
 
     # Apply PCA on Data an plot it afterwards
     np_z_pca = apply_pca(model.np_z_test)
@@ -255,7 +379,7 @@ def plot_results(model, experiment_path, dct_params):
 
     # Plot the probability distribution of latent layer
     df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ")
-    plot_distribution(df_melted, 'Probability Distribution of Laten Factors (z)', exp_path_img,dct_params)
+    plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
     plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
