@@ -9,7 +9,6 @@ import time
 import torch, torch.nn as nn, torchvision, torch.optim as optim
 import numpy as np
 
-import pandas as pd
 from tqdm import tqdm
 from pytorch_lightning.loggers.neptune import NeptuneLogger
 
@@ -162,7 +161,7 @@ class VAE(pl.LightningModule):
 
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
-
+        self.np_synthetic_data = self.hparams["synthetic_data"]
         self.experiment_path_train = conf["experiment_path"]
         self.experiment_path_test = self.experiment_path_train
         self.beta = self.hparams["beta"]
@@ -177,7 +176,20 @@ class VAE(pl.LightningModule):
         self.small_dataset = self.hparams["small_dataset"]
         self.simplified_rating = self.hparams["simplified_rating"]
         self.max_epochs = self.hparams["max_epochs"]
-        self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
+        if(self.np_synthetic_data is None):
+            self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
+            self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
+            self.dct_attribute_distribution = utils.load_json_as_dict(
+                'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
+
+
+        else:
+            self.train_dataset, self.test_dataset = train_test_split(self.np_synthetic_data, test_size=self.test_size,
+                                                                     random_state=42)
+            self.unique_movies = self.np_synthetic_data.shape[1]
+            self.df_movies = pd.read_csv('../data/generated/syn.csv')
+            self.dct_attribute_distribution = utils.load_json_as_dict(
+                'syn_attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
         self.fc1 = nn.Linear(in_features=self.unique_movies, out_features=400) #input
@@ -201,13 +213,11 @@ class VAE(pl.LightningModule):
         self.np_logvar_train = np.empty((0, self.no_latent_factors))
 
         # self.dct_attribute_distribution = None # load relative frequency distributioon from dictionary (pickle it)
-        self.dct_attribute_distribution = utils.load_json_as_dict(
-            'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         # self.df_links = None
         # self.df_movies = None
         self.df_links = pd.read_csv('../data/movielens/small/links.csv')
-        self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
+
 
         self.bce = 0
         self.sigmoid_annealing_threshold = self.hparams['sigmoid_annealing_threshold']
@@ -357,7 +367,7 @@ class VAE(pl.LightningModule):
         #     batch_mce = mce_batch(self, ts_batch_user_features, k=1)
         #     utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld2.json', self.experiment_path)
 
-        batch_bce, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+        batch_bce, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
         batch_loss = batch_bce + batch_kld
         self.ls_kld.append(self.KLD.tolist())
         loss = batch_loss/len(ts_batch_user_features)
@@ -414,7 +424,7 @@ class VAE(pl.LightningModule):
 
 
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
-        batch_bce, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, unique_movies)
+        batch_bce, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
         batch_loss = batch_bce + kld
 
         mce_minibatch = mce_batch(self, ts_batch_user_features, k=1)
@@ -489,9 +499,8 @@ class VAE(pl.LightningModule):
             return kld_weight
 
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
-        BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),
-                                     reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
-
+        BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
+        MSE = F.mse_loss(recon_x, x, size_average = False)
         # see Appendix B from VAE paper:
         # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
         # https://arxiv.org/abs/1312.6114
@@ -511,7 +520,7 @@ class VAE(pl.LightningModule):
         self.KLD = kld_mean * kld_weight
         self.dis_KLD = beta * self.KLD
 
-        return BCE, self.dis_KLD  # beta = disentangle factor
+        return MSE, self.dis_KLD  # beta = disentangle factor
 
 
     def calculate_batch_metrics(self, recon_batch, ts_batch_user_features):
@@ -557,8 +566,8 @@ class VAE(pl.LightningModule):
         self.np_z_train = dct_attributes['np_z_train']
         self.ls_kld = dct_attributes['ls_kld']
 
-        self.dct_attribute_distribution = utils.load_json_as_dict(
-            'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
+        # self.dct_attribute_distribution = utils.load_json_as_dict(
+        #     'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         self.z_max_train = dct_attributes['z_max_train']
         print('Attributes loaded')
@@ -642,19 +651,24 @@ def shannon_inf_score(m, m_hat):
 def calculate_normalized_entropy(population):
     H=0
     H_n =0
-    if(len(population) == 1): #only one attribute is present
-        H = - (population[0] * math.log(population[0], 2))
-        return H
-    else:
-        for rf in population:
-            H = - (rf * math.log(rf, 2))
-            H_n += H / math.log(len(population), 2)
+    try:
+        if(len(population) == 1): #only one attribute is present
+            H = - (population[0] * math.log(population[0], 2))
+            return H
+        else:
+            # for rf in population:
+            #     H_n = - (rf * math.log(rf, 2)) /math.log(len(population), 2)
 
-        H_scipy = entropy(population, base=2)
-        print(H_scipy, H_n)
-        assert H_scipy == H_n
 
-        return H_n
+            H_scipy = entropy(population, base=2)
+            H_n = H_scipy / math.log(len(population), 2)
+            # print(H_scipy, H_n)
+            # assert H_scipy == H_n
+    except ValueError:
+        print('f')
+
+
+    return H_n
 
 def information_gain(m, m_hat, dct_population):
     global ig_m_cnt
@@ -678,7 +692,7 @@ def information_gain(m, m_hat, dct_population):
         # return ig_m_hat
 
     ig_m_cnt += 1
-    return ig_m - ig_m_hat
+    return ig_m_hat - ig_m
 
 def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
     # dct_dist = pickle.load(movies_distribution)
@@ -686,7 +700,7 @@ def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
     dct_mce = defaultdict(float)
     for idx_vector in range(y_hat.shape[0]):
         for attribute in y_hat:
-            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline']):
+            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline','id']):
                 ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
                 ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
                 mean = 0
@@ -708,12 +722,13 @@ def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
                     ls_m_hat_rf=[]
                     #Go through elements of a cell
                     for value in ls_y_latent_attribute_val: #same as characteristic
-                        if(value in ls_y_attribute_val): #if no change, assign highest error
+                        # if(value in ls_y_attribute_val): #if no change, assign highest error
                             # mean += 1
-                            m_hat +=1
+                            # m_hat +=1
+
                             # ls_y_latent_attribute_val.pop(value)
 
-                        else:
+                        # else:
                             # characteristic = y_hat.loc[idx_vector, attribute]
                             y_hat_latent_attribute_relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
                             m_hat += y_hat_latent_attribute_relative_frequency
@@ -721,7 +736,9 @@ def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
                             # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
                     #if no values are presented in the current cell than assign highest error
                     if(len(ls_y_latent_attribute_val)==0):
-                        mce =15
+                        # mce =15
+                        #TODO sth else than just break, maybe mce = -1?
+                        break
                     else:
                         #rf = relative frequency
                         dct_population = dct_attribute_distribution[attribute]['relative']
@@ -809,15 +826,24 @@ def calculate_mean_of_ls_dict(ls_dict: list):
     print(dct_mean)
     return dct_mean
 
-def match_metadata(indezes, df_links, df_movies):
+def match_metadata(indezes, df_links, df_movies, synthetic):
     # ls_indezes = y_hat.values.index
     #TODO Source read_csv out
     # df_links = pd.read_csv('../data/movielens/small/links.csv')
     # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
     global dct_index2itemId
-    ls_filter = ['languages','directors','writer', 'writers','countries','runtimes', 'aspect_ratio', 'color_info', 'sound_mix', 'plot_outline', 'title', 'animation_department','casting_department', 'music_department','plot','set_decorators', 'script_department']
-    df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
+    if(synthetic == False):
+        ls_filter = ['languages','directors','writer', 'writers',
+                     'countries','runtimes', 'aspect_ratio', 'color_info',
+                     'sound_mix', 'plot_outline', 'title', 'animation_department',
+                     'casting_department', 'music_department','plot',
+                     'set_decorators', 'script_department',
+                     #TODO Add the attributes below once it works
+                     'cast_id', 'stars_id', 'producers', 'language_codes',
+                     'composers', 'cumulative_worldwide_gross','costume_designers',
+                     'kind', 'editors','country_codes', 'assistant_directors', 'cast']
+        df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
     ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes] #ml = MovieLens
 
 
@@ -894,8 +920,12 @@ def mce_batch(model, ts_batch_features, k=0):
             y_hat_k_highest = (-y_hat).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
             y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
 
-            y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
-            y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
+            if(model.np_synthetic_data is None):
+                y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies, True)
+                y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
+            else:
+                y_hat_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_k_highest.tolist())]
+                y_hat_latent_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
 
             # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             # single_mce = mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
@@ -907,7 +937,10 @@ def mce_batch(model, ts_batch_features, k=0):
     return dct_mce_mean
 
 
-
+def generate_distribution_df():
+    dct_attribute_distribution = utils.compute_relative_frequency(
+        pd.read_csv('../data/generated/syn.csv'))
+    utils.save_dict_as_json(dct_attribute_distribution, 'syn_attribute_distribution.json')
 
 if __name__ == '__main__':
 
@@ -934,13 +967,12 @@ if __name__ == '__main__':
     torch.manual_seed(100)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
 
-    #%%
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.1,#TODO Change test size to 0.33
+                    "test_size": 0.2,#TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta":1,
-                    "sigmoid_annealing_threshold": 40,
+                    "sigmoid_annealing_threshold": 0,
                     "max_epochs": max_epochs}
     # model_params.update(args.__dict__)
     # print(**model_params)
@@ -948,17 +980,14 @@ if __name__ == '__main__':
     merged_params = (lambda first_dict, second_dict: {**first_dict, **second_dict})(args.__dict__, model_params)
     # print(merged_params)
 
-
-
-
-
     #%%
     train = True
+    synthetic_data = True
     base_path = 'results/models/vae/'
 
     ls_epochs = [150]
-    ls_latent_factors = [5]
-    ls_disentangle_factors = [10] #TODO: Maybe try out 10 here , 10,1
+    ls_latent_factors = [4]
+    ls_disentangle_factors = [4] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -972,7 +1001,7 @@ if __name__ == '__main__':
                     train_tag = "test"
 
                 print("Processing model with: {} epochs, {} latent factors, {} beta".format(epoch, lf, beta))
-                exp_name = "{}_beta_{}_epochs_{}_lf".format(beta, epoch, lf)
+                exp_name = "{}_beta_{}_epochs_{}_lf_synt_{}".format(beta, epoch, lf, synthetic_data)
                 wandb_name = exp_name + "_" + train_tag
                 model_name = exp_name + ".ckpt"
                 attribute_name = exp_name + "_attributes.pickle"
@@ -986,6 +1015,8 @@ if __name__ == '__main__':
                 model_params['max_epochs'] = epoch
                 model_params['latent_dim'] = lf
                 model_params['beta'] = beta
+                model_params['synthetic_data'] = None
+                model_params['sigmoid_annealing_threshold'] = epoch/10
 
                 args.max_epochs = epoch
 
@@ -1002,10 +1033,14 @@ if __name__ == '__main__':
                 if(train):
                     print('<---------------------------------- VAE Training ---------------------------------->')
                     print("Running with the following configuration: \n{}".format(args))
+                    if (synthetic_data):
+                        model_params['synthetic_data'] = utils.create_synthetic_data()
+                        generate_distribution_df()
+
                     model = VAE(model_params)
                     wandb_logger.watch(model, log='gradients', log_freq=100)
 
-                    utils.print_nn_summary(model)
+                    # utils.print_nn_summary(model, size =200)
 
                     print('------ Start Training ------')
                     trainer.fit(model)
@@ -1038,7 +1073,10 @@ if __name__ == '__main__':
 
                 # %%
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
-                utils.plot_results(test_model, experiment_path,dct_param )
+                utils.plot_results(test_model,
+                                   test_model.experiment_path_test,
+                                   test_model.experiment_path_train,
+                                   dct_param )
 
                 artifact = wandb.Artifact('Plots', type='result')
                 artifact.add_dir(experiment_path)#, name='images'
