@@ -359,7 +359,7 @@ class VAE(pl.LightningModule):
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-            mce_minibatch = mce_batch(self, ts_batch_user_features, k=1)
+            mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
             self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
         # if (self.current_epoch == self.sigmoid_annealing_threshold and batch_idx ==1):
@@ -427,7 +427,7 @@ class VAE(pl.LightningModule):
         batch_bce, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
         batch_loss = batch_bce + kld
 
-        mce_minibatch = mce_batch(self, ts_batch_user_features, k=1)
+        mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
         self.mce_batch_test = self.average_mce_batch(self.mce_batch_test, mce_minibatch)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
@@ -750,7 +750,11 @@ def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
                         mce = information_gain(ls_y_hat_rf, ls_m_hat_rf, dct_population)
                         # mce = shannon_inf_score(m, m_hat)
 
-                    dct_mce[attribute] = mce
+                    prev_mce = dct_mce.get(attribute)
+                    if (prev_mce):
+                        dct_mce[attribute] = (prev_mce + mce) / 2
+                    else:
+                        dct_mce[attribute] = mce
                 except (KeyError, TypeError, ZeroDivisionError) as e:
                     print("Error Value:{}".format(value))
 
@@ -833,17 +837,17 @@ def match_metadata(indezes, df_links, df_movies, synthetic):
     # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
     global dct_index2itemId
-    if(synthetic == False):
-        ls_filter = ['languages','directors','writer', 'writers',
-                     'countries','runtimes', 'aspect_ratio', 'color_info',
-                     'sound_mix', 'plot_outline', 'title', 'animation_department',
-                     'casting_department', 'music_department','plot',
-                     'set_decorators', 'script_department',
-                     #TODO Add the attributes below once it works
-                     'cast_id', 'stars_id', 'producers', 'language_codes',
-                     'composers', 'cumulative_worldwide_gross','costume_designers',
-                     'kind', 'editors','country_codes', 'assistant_directors', 'cast']
-        df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
+    # if(synthetic == False):
+    ls_filter = ['languages','directors','writer', 'writers',
+                 'countries','runtimes', 'aspect_ratio', 'color_info',
+                 'sound_mix', 'plot_outline', 'title', 'animation_department',
+                 'casting_department', 'music_department','plot',
+                 'set_decorators', 'script_department',
+                 #TODO Add the attributes below once it works
+                 'cast_id', 'stars_id', 'producers', 'language_codes',
+                 'composers', 'cumulative_worldwide_gross','costume_designers',
+                 'kind', 'editors','country_codes', 'assistant_directors', 'cast']
+    df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
     ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes] #ml = MovieLens
 
 
@@ -873,15 +877,12 @@ def mce_batch(model, ts_batch_features, k=0):
     ls_y_hat, mu, logvar = model(ts_batch_features)
     z = model.z
     # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
-    # df_links = pd.read_csv('../data/movielens/small/links.csv')
-    # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
     for latent_factor_position in range(model.no_latent_factors):
         print("Calculate MCEs for position: {} in vector z".format(latent_factor_position))
         ts_altered_z = alter_z(z, latent_factor_position, model)
 
         ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
-        # mce()
 
         ls_idx_y = (-ts_batch_features).argsort()
         ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
@@ -917,11 +918,13 @@ def mce_batch(model, ts_batch_features, k=0):
             if(k == 0):
                 k = 10#len(ls_seen_items) #no_of_seen_items  TODO Add k
 
-            y_hat_k_highest = (-y_hat).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+            y_hat_k_highest = (-y_hat).argsort()[:1] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
             y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
 
+            # for 
             if(model.np_synthetic_data is None):
-                y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies, True)
+                # synthetic = False
+                y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
                 y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
             else:
                 y_hat_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_k_highest.tolist())]
@@ -985,9 +988,9 @@ if __name__ == '__main__':
     synthetic_data = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [150]
+    ls_epochs = [300]
     ls_latent_factors = [4]
-    ls_disentangle_factors = [4] #TODO: Maybe try out 10 here , 10,1
+    ls_disentangle_factors = [100] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -1016,7 +1019,7 @@ if __name__ == '__main__':
                 model_params['latent_dim'] = lf
                 model_params['beta'] = beta
                 model_params['synthetic_data'] = None
-                model_params['sigmoid_annealing_threshold'] = epoch/10
+                model_params['sigmoid_annealing_threshold'] = int(epoch/10)
 
                 args.max_epochs = epoch
 
