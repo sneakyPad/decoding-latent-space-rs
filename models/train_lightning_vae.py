@@ -162,6 +162,7 @@ class VAE(pl.LightningModule):
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
         self.np_synthetic_data = self.hparams["synthetic_data"]
+        self.ls_syn_y = self.hparams["syn_y"]
         self.experiment_path_train = conf["experiment_path"]
         self.experiment_path_test = self.experiment_path_train
         self.beta = self.hparams["beta"]
@@ -184,8 +185,9 @@ class VAE(pl.LightningModule):
 
 
         else:
-            self.train_dataset, self.test_dataset = train_test_split(self.np_synthetic_data, test_size=self.test_size,
-                                                                     random_state=42)
+            self.train_dataset, self.test_dataset = train_test_split(self.np_synthetic_data, test_size=self.test_size, random_state=42)
+            self.train_y, self.test_y = train_test_split(self.ls_syn_y, test_size=self.test_size, random_state=42)
+
             self.unique_movies = self.np_synthetic_data.shape[1]
             self.df_movies = pd.read_csv('../data/generated/syn.csv')
             self.dct_attribute_distribution = utils.load_json_as_dict(
@@ -193,10 +195,17 @@ class VAE(pl.LightningModule):
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
         self.fc1 = nn.Linear(in_features=self.unique_movies, out_features=400) #input
-        self.fc21 = nn.Linear(in_features=400, out_features=self.no_latent_factors) #encoder mean
-        self.fc22 = nn.Linear(in_features=400, out_features=self.no_latent_factors) #encoder variance
-        self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=400) #hidden layer
-        self.fc4 = nn.Linear(in_features=400, out_features=self.unique_movies)
+        self.fc11 = nn.Linear(in_features=400, out_features=100) #input
+        self.encoder = nn.Sequential(self.fc1, self.fc11)
+
+        self.fc21 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder mean
+        self.fc22 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder variance
+        self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
+
+
+        self.fc41 = nn.Linear(in_features=100, out_features=400)
+        self.fc42 = nn.Linear(in_features=400, out_features=self.unique_movies)
+        self.decoder = nn.Sequential(self.fc41, self.fc42)
 
         self.KLD = None
         self.ls_kld = []
@@ -228,6 +237,10 @@ class VAE(pl.LightningModule):
         self.z_min_train = []
         self.z_max_train = []
 
+        # Initialize weights
+        # self.encoder.apply(self.weight_init)
+        # self.decoder.apply(self.weight_init)
+
         # self.ig_m_hat_cnt = 0
         # self.ig_m_cnt = 0
         # if (kwargs.get('load_saved_attributes') == True):
@@ -236,8 +249,14 @@ class VAE(pl.LightningModule):
         #
         #     self.np_z_train = dct_attributes['np_z_train']
 
+    def weight_init(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight)
+            m.bias.data.zero_()
+
     def encode(self, x):
-        h1 = F.relu(self.fc1(x))
+        # h1 = F.relu(self.fc1(x))
+        h1 = F.relu(self.encoder(x))
         return self.fc21(h1), self.fc22(h1)
 
     def reparameterize(self, mu, logvar):
@@ -247,7 +266,8 @@ class VAE(pl.LightningModule):
 
     def decode(self, z):
         h3 = F.relu(self.fc3(z))
-        return torch.sigmoid(self.fc4(h3))
+        # return torch.sigmoid(self.fc4(h3))
+        return torch.sigmoid(self.decoder(h3))
 
     def compute_z(self, mu, logvar):
 
@@ -285,13 +305,13 @@ class VAE(pl.LightningModule):
     def train_dataloader(self):
         #TODO Change shuffle to True, just for dev purpose switched on
         train_loader = torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=128, shuffle=True, num_workers=1, pin_memory=True
+            self.train_dataset, batch_size=32, shuffle=False, num_workers=0, pin_memory=True
         )
         return train_loader
 
     def test_dataloader(self):
         test_loader = torch.utils.data.DataLoader(
-            self.test_dataset, batch_size=32, shuffle=True, num_workers=1
+            self.test_dataset, batch_size=32, shuffle=False, num_workers=0
         )
         return test_loader
 
@@ -301,7 +321,7 @@ class VAE(pl.LightningModule):
         # scheduler = StepLR(optimizer, step_size=1)
         return optimizer#, scheduler
 
-    def collect_z_values(self, ts_mu_chunk, ts_logvar_chunk):
+    def collect_z_values(self, ts_mu_chunk, ts_logvar_chunk):#, ls_y
         start = time.time()
         ls_grad_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
         self.np_z_train = np.append(self.np_z_train, np.asarray(ls_grad_z.tolist()),
@@ -351,11 +371,16 @@ class VAE(pl.LightningModule):
         mce_minibatch=None
 
         print('train step')
+        batch_len = batch.shape[0]
         ts_batch_user_features = batch
         recon_batch, ts_mu_chunk, ts_logvar_chunk = self.forward(ts_batch_user_features)  # sample data
+
+        # ls_preference = self.train_y[batch_idx * batch_len :(batch_idx + 1) * batch_len]
+
+
         if(self.current_epoch == self.max_epochs-1):
             print("Last round yipi")
-            self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
+            self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)#, ls_preference
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
@@ -499,28 +524,29 @@ class VAE(pl.LightningModule):
             return kld_weight
 
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
-        BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
-        MSE = F.mse_loss(recon_x, x, size_average = False)
-        # see Appendix B from VAE paper:
-        # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+        zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
+        one_mask = ~zero_mask
+
+        # BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
+        MSE = F.mse_loss(x[one_mask], recon_x[one_mask])#/x.shape[1]
+
+        # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
         # https://arxiv.org/abs/1312.6114
-        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        self._KLD = - 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())  # Kullback Leibler (Decoder)
-        # self.KLD = torch.mean(-0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp(), dim = 1), dim = 0)
+
         kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
-        self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0) #TODO is there an alternative to [] for np.asarray?
+        kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors, dim=0))
+        self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0)
 
-
-        kld_mean = torch.mean(0.5 * torch.sum(kld_latent_factors,dim=0))
         if(self.training):
             kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
         else:
             kld_weight = beta
 
         self.KLD = kld_mean * kld_weight
-        self.dis_KLD = beta * self.KLD
 
-        return MSE, self.dis_KLD  # beta = disentangle factor
+        # CE = -torch.mean(torch.sum(F.log_softmax(recon_x, 1) * x, -1))
+        # KLD = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+        return MSE,  self.KLD
 
 
     def calculate_batch_metrics(self, recon_batch, ts_batch_user_features):
@@ -564,6 +590,8 @@ class VAE(pl.LightningModule):
         with open(path, 'rb') as handle:
             dct_attributes = pickle.load(handle)
         self.np_z_train = dct_attributes['np_z_train']
+        self.train_y = dct_attributes['train_y']
+        self.test_y = dct_attributes['test_y']
         self.ls_kld = dct_attributes['ls_kld']
 
         # self.dct_attribute_distribution = utils.load_json_as_dict(
@@ -574,6 +602,8 @@ class VAE(pl.LightningModule):
 
     def save_attributes(self, path):
         dct_attributes = {'np_z_train':self.np_z_train,
+                          'train_y': self.train_y,
+                          'test_y':self.test_y,
                           'ls_kld':self.ls_kld,
                           'z_max_train': self.z_max_train}
         with open(path, 'wb') as handle:
@@ -972,7 +1002,7 @@ if __name__ == '__main__':
 
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.2,#TODO Change test size to 0.33
+                    "test_size": 0.1,#TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta":1,
                     "sigmoid_annealing_threshold": 0,
@@ -988,9 +1018,9 @@ if __name__ == '__main__':
     synthetic_data = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [300]
-    ls_latent_factors = [4]
-    ls_disentangle_factors = [100] #TODO: Maybe try out 10 here , 10,1
+    ls_epochs = [100]
+    ls_latent_factors = [2]
+    ls_disentangle_factors = [0.5, 1] #TODO: Maybe try out 10 here , 10,1
 
 
     # ls_epochs = [50, 500, 2000]
@@ -1037,7 +1067,7 @@ if __name__ == '__main__':
                     print('<---------------------------------- VAE Training ---------------------------------->')
                     print("Running with the following configuration: \n{}".format(args))
                     if (synthetic_data):
-                        model_params['synthetic_data'] = utils.create_synthetic_data()
+                        model_params['synthetic_data'], model_params['syn_y'] = utils.create_synthetic_data()
                         generate_distribution_df()
 
                     model = VAE(model_params)
