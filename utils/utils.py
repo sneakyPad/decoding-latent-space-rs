@@ -80,18 +80,18 @@ def compute_relative_frequency(df_meta):
 
 
 def create_synthetic_data():
-    no_samples =50
+    no_samples = 20
     genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama', 'Romance','Comedy', 'War','Adventure', 'Family']
     year = ['1980', '1990', '2000', '2010', '2020']
     stars = ['Tom Hanks', 'Tim Allen', 'Don Rickles','Robin Williams', 'Kirsten Dunst', 'Bonnie Hunt']
     rating = ['7', '8', '9', '10']
 
-    dct_base_data ={'genres': genres, 'year': year, 'stars': stars, 'rating': rating}
+    dct_base_data ={'genres': genres, 'year': year}#, 'stars': stars, 'rating': rating
     ls_movies = []
 
     #genre-users
-    ls_attributes = ['genres', 'year', 'stars', 'rating']
-    n_users = 600
+    ls_attributes = ['genres', 'year']#, 'stars', 'rating'
+    n_users = 2000
     n_movies = len(ls_attributes * no_samples)
     np_user_item = np.zeros((n_users,n_movies),dtype="float32")
 
@@ -113,25 +113,36 @@ def create_synthetic_data():
             ls_movies.append(movie)
 
 
-    df_synthentic_data = pd.DataFrame(columns=['genres', 'year', 'stars', 'rating'], data=ls_movies)
+    df_synthentic_data = pd.DataFrame(columns=['genres', 'year'], data=ls_movies) #, 'stars', 'rating'
     df_synthentic_data['id'] = df_synthentic_data.index
     df_synthentic_data.to_csv('../data/generated/syn.csv', index=False)
 
-    no_users_attribute_specific = int(n_users / len(ls_attributes))
+
+    ls_y = []
+    no_users_with_same_preference = int(n_users / len(ls_attributes))
     for i in range(0, len(ls_attributes)):
-        end = (i+1) * no_samples
-        start = end - no_samples
+        end = (i+1) * no_samples -1
+        start = i * no_samples
         sr_ids = df_synthentic_data.loc[start:end]['id']
+        attribute = ls_attributes[i]
+        #
 
-        for idx in range(no_users_attribute_specific):
-            no_of_seen_items = int(random.uniform(20, 40))
+        for idx in range(no_users_with_same_preference):
+            min_sample = no_samples*0.5
+            max_sample = no_samples*0.7
+            no_of_seen_items = int(random.uniform(min_sample,max_sample))#30, 49
             seen = random.sample(list(sr_ids.values), k=no_of_seen_items)
-            user_idx = i * no_users_attribute_specific + idx
+            user_idx = i * no_users_with_same_preference + idx
             np_user_item[user_idx,seen] = 1
-
+            ls_y.append(attribute)
+        # df_synthentic_data.loc[start:end, 'y'] = ls_attributes[i]
     # print(ls_movies)
+    np.random.seed(42)
+    import sklearn
+    np_user_item, ls_y = sklearn.utils.shuffle(np_user_item, ls_y)
 
-    return np_user_item
+    print("Shape of User-Item Matrix:{}".format(np_user_item.shape))
+    return np_user_item, ls_y
 
 
 def create_experiment_directory():
@@ -353,15 +364,32 @@ def plot_KLD(ls_kld, title, experiment_path, dct_params):
     plt.show()
 
 
-def plot_pairplot_lf(model, title, experiment_path, dct_params):
+def plot_pairplot_lf_kld(model, title, experiment_path, dct_params):
     df_kld_matrix = pd.DataFrame(data=model.kld_matrix,
                                  columns=[str(i) for i in range(0, model.kld_matrix.shape[1])])
     fig = sns.pairplot(df_kld_matrix, corner=True, aspect=1.65).fig
-    plt.title(title, fontsize=17, y=1.08)
+    # for ax in fig.axes:
+    #     ax.set_xlim(-3, 3)
+    #     ax.set_ylim(-3, 3)
+
+
+    fig.suptitle(title)
+    # plt.title(title, fontsize=17, y=1.08)
     plt.tight_layout()
-    save_figure(fig, experiment_path, 'lf_correlation', dct_params)
+    save_figure(fig, experiment_path, 'lf_correlation_kld', dct_params)
     plt.show()
 
+def plot_pairplot_lf_z(model, title, experiment_path, dct_params):
+    df_z_matrix = pd.DataFrame(data=model.np_z_test,
+                                 columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
+    df_z_matrix['y'] = model.test_y
+    fig = sns.pairplot(df_z_matrix, corner=True, aspect=1.65, hue='y').fig
+
+    fig.suptitle(title)
+    # plt.title(title, fontsize=17, y=1.08)
+    plt.tight_layout()
+    save_figure(fig, experiment_path, 'lf_correlation_z', dct_params)
+    plt.show()
 
 
 def plot_results(model, experiment_path_test, experiment_path_train, dct_params):
@@ -388,6 +416,7 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
     # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
     plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
-    plot_pairplot_lf(model, 'Correlation of Latent Factors', exp_path_img, dct_params)
+    plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+    plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
 
     # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries

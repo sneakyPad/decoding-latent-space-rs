@@ -4,22 +4,16 @@
 from __future__ import print_function
 import wandb
 from pytorch_lightning.loggers import WandbLogger
-
-import time
 import torch, torch.nn as nn, torchvision, torch.optim as optim
-import numpy as np
-
 from tqdm import tqdm
-from pytorch_lightning.loggers.neptune import NeptuneLogger
-
 from pytorch_lightning import Trainer
 from sklearn.model_selection import train_test_split
 # import recmetrics
 # from surprise import Reader, SVD, Dataset
 # from surprise.model_selection import train_test_split
 import ast
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from collections import defaultdict
-
 import argparse
 import torch
 import torch.utils.data
@@ -36,12 +30,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import pandas as pd
-
 from sklearn import manifold, decomposition
-
 import pickle
 import wandb
 from scipy.stats import entropy
+import time
+import os
 
 #ToDo EDA:
 # - Long Tail graphics
@@ -183,7 +177,6 @@ class VAE(pl.LightningModule):
             self.dct_attribute_distribution = utils.load_json_as_dict(
                 'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
-
         else:
             self.train_dataset, self.test_dataset = train_test_split(self.np_synthetic_data, test_size=self.test_size, random_state=42)
             self.train_y, self.test_y = train_test_split(self.ls_syn_y, test_size=self.test_size, random_state=42)
@@ -201,7 +194,6 @@ class VAE(pl.LightningModule):
         self.fc21 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder mean
         self.fc22 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder variance
         self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
-
 
         self.fc41 = nn.Linear(in_features=100, out_features=400)
         self.fc42 = nn.Linear(in_features=400, out_features=self.unique_movies)
@@ -223,12 +215,7 @@ class VAE(pl.LightningModule):
 
         # self.dct_attribute_distribution = None # load relative frequency distributioon from dictionary (pickle it)
 
-        # self.df_links = None
-        # self.df_movies = None
         self.df_links = pd.read_csv('../data/movielens/small/links.csv')
-
-
-        self.bce = 0
         self.sigmoid_annealing_threshold = self.hparams['sigmoid_annealing_threshold']
         self.mce_batch_train = None
         self.mce_batch_test = None
@@ -305,13 +292,13 @@ class VAE(pl.LightningModule):
     def train_dataloader(self):
         #TODO Change shuffle to True, just for dev purpose switched on
         train_loader = torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=32, shuffle=False, num_workers=0, pin_memory=True
+            self.train_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True
         )
         return train_loader
 
     def test_dataloader(self):
         test_loader = torch.utils.data.DataLoader(
-            self.test_dataset, batch_size=32, shuffle=False, num_workers=0
+            self.test_dataset, batch_size=16, shuffle=False, num_workers=0
         )
         return test_loader
 
@@ -377,9 +364,8 @@ class VAE(pl.LightningModule):
 
         # ls_preference = self.train_y[batch_idx * batch_len :(batch_idx + 1) * batch_len]
 
-
         if(self.current_epoch == self.max_epochs-1):
-            print("Last round yipi")
+            print("Last round..")
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)#, ls_preference
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
@@ -387,22 +373,15 @@ class VAE(pl.LightningModule):
             mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
             self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
-        # if (self.current_epoch == self.sigmoid_annealing_threshold and batch_idx ==1):
-        #     self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-        #     batch_mce = mce_batch(self, ts_batch_user_features, k=1)
-        #     utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld2.json', self.experiment_path)
-
-        batch_bce, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
-        batch_loss = batch_bce + batch_kld
+        batch_mse, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
+        batch_loss = batch_mse + batch_kld
         self.ls_kld.append(self.KLD.tolist())
-        loss = batch_loss/len(ts_batch_user_features)
-        bce = batch_bce/len(ts_batch_user_features)
 
         #Additional logs go into tensorboard_logs
-        tensorboard_logs = {'train_loss': loss,
-                'KLD-Train': self.KLD,
-                'BCE-Train': bce} #
-        return {'loss': loss, 'log': tensorboard_logs}
+        tensorboard_logs = {'train_loss': batch_loss,
+                'KLD-Train': batch_kld,
+                'MSE-Train': batch_mse} #
+        return {'loss': batch_loss, 'log': tensorboard_logs}
 
 
     def training_epoch_end(self, outputs):
@@ -410,34 +389,18 @@ class VAE(pl.LightningModule):
         if(self.current_epoch == self.sigmoid_annealing_threshold ):
             utils.save_dict_as_json(self.mce_batch_train, 'mce_results_wo_kld.json', self.experiment_path_train)
         return {}
-    #     if (self.current_epoch == 3):
-    #         ts_mu_chunk= outputs[0]['ts_mu_chunk'] #TODO 0 only means the first batch, thiis is actually wrong, it should be all of them
-    #         ts_logvar_chunk = outputs[0]['ts_logvar_chunk']
-    #         ts_batch_user_features = outputs[0]['ts_batch_user_features']
-    #
-    #         self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-    #         batch_mce = mce_batch(self, ts_batch_user_features, k=1)
-    #
-    #         utils.save_dict_as_json(batch_mce, 'mce_results_wo_kld.json', self.experiment_path)
-
-        # utils.save_dict_as_json(outputs[0]['mce'], 'mce_results_wo_kld.json', self.experiment_path)
-
 
     # def validation_step(self, batch, batch_idx):
     #     return 0
-    #
+
     def test_step(self, batch, batch_idx):
-        batch_mce =0
-
-
         print('test step')
+
+        batch_mce =0
+        test_loss = 0
 
         # self.eval()
         ts_batch_user_features = batch
-
-        test_loss = 0
-        # with torch.no_grad():
-        #     for i, data in enumerate(test_loader):
 
         recon_batch, ts_mu_chunk, ts_logvar_chunk = self(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
@@ -447,10 +410,9 @@ class VAE(pl.LightningModule):
         self.np_logvar_test = np.append(self.np_logvar_test, np.asarray(ts_logvar_chunk), axis =0)
         # self.np_z = np.vstack((self.np_z, np_z_chunk))
 
-
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
-        batch_bce, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
-        batch_loss = batch_bce + kld
+        batch_mse, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
+        batch_loss = batch_mse + kld
 
         mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
         self.mce_batch_test = self.average_mce_batch(self.mce_batch_test, mce_minibatch)
@@ -458,11 +420,9 @@ class VAE(pl.LightningModule):
         #to be rermoved mean_mce = { for single_mce in batch_mce}
         loss = batch_loss.item() / len(ts_batch_user_features)
 
-        bce = batch_bce/len(ts_batch_user_features)
+        # bce = batch_bce/len(ts_batch_user_features)
         tensorboard_logs = {'KLD-Test': kld,
-                            'BCE-test': bce}
-
-
+                            'MSE-test': batch_mse}
 
         return {'test_loss': loss,
                 'rmse': batch_rmse,
@@ -471,7 +431,7 @@ class VAE(pl.LightningModule):
                 'mse_w_zeros': batch_mse_w_zeros,
                 'log':tensorboard_logs,
                 'KLD-Test': kld,
-                            'BCE-Test': bce
+                            'MSE-Test': batch_mse
                 }
 
         # test_loss /= len(test_loader.dataset)
@@ -480,7 +440,7 @@ class VAE(pl.LightningModule):
     def test_epoch_end(self, outputs):
         # avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
-        bce_test = np.array([x['BCE-Test'] for x in outputs])
+        mse_test = np.array([x['MSE-Test'] for x in outputs])
         kld_test =np.array([x['KLD-Test'] for x in outputs])
         # ls_mce = {x['mce'] for x in outputs}
         # utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json', self.experiment_path) #TODO This is wrong as only one batch is processed, should be all
@@ -492,28 +452,18 @@ class VAE(pl.LightningModule):
         avg_mse = np.array([x['mse'] for x in outputs]).mean()
         avg_mse_w_zeros = np.array([x['mse_w_zeros'] for x in outputs]).mean()
 
-        tensorboard_logs = {'test_loss': avg_loss, 'BCE-Test':bce_test,'KLD-Test': kld_test }
-        assert len(bce_test)==len(kld_test)
-        for i in range(0, len(bce_test)):
-            wandb_logger.log_metrics({'BCE-Test': bce_test[i],'KLD-Test': kld_test[i]} )
-
-
-
+        tensorboard_logs = {'test_loss': avg_loss, 'MSE-Test':mse_test,'KLD-Test': kld_test }
+        assert len(mse_test)==len(kld_test)
+        for i in range(0, len(mse_test)):
+            wandb_logger.log_metrics({'MSE-Test': mse_test[i],'KLD-Test': kld_test[i]} )
 
         wandb_logger.log_metrics({'rmse': avg_rmse,
                                   'rmse_w_zeros':avg_rmse_w_zeros,
                                   'mse': avg_mse,
                                   'mse_w_zeros': avg_mse_w_zeros})#, 'kld_matrix':self.kld_matrix
-        # neptune_logger.experiment.log_metric('rmse', avg_rmse)
-        # neptune_logger.experiment.log_metric('rmse_wo_zeros', avg_rmse_wo_zeros)
-        # neptune_logger.experiment.log_metric('mse', avg_mse)
-        # neptune_logger.experiment.log_metric('mse_wo_zeros', avg_mse_wo_zeros)
 
-        # self.avg_mce = avg_mce
+        return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse, 'MSE-Test':mse_test,'KLD-test': kld_test }#, , 'mce':avg_mce
 
-        return {'test_loss': avg_loss, 'log': tensorboard_logs, 'rmse': avg_rmse, 'BCE-Test':bce_test,'KLD-test': kld_test }#, , 'mce':avg_mce
-
-    # Reconstruction + KL divergence losses summed over all elements and batch
     def sigmoid_annealing(self, beta, epoch):
 
         stretch_factor = 0.5
@@ -523,12 +473,14 @@ class VAE(pl.LightningModule):
             kld_weight = beta/(1+ math.exp(-epoch * stretch_factor + self.sigmoid_annealing_threshold)) #epoch_threshold moves e function along the x-axis
             return kld_weight
 
+    # Reconstruction + KL divergence losses summed over all elements and batch
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
         zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
         one_mask = ~zero_mask
-
-        # BCE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
-        MSE = F.mse_loss(x[one_mask], recon_x[one_mask])#/x.shape[1]
+        # x = x[one_mask]
+        # recon_x = recon_x[one_mask]
+        # MSE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
+        MSE = F.mse_loss(x, recon_x)#/x.shape[1]
 
         # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
         # https://arxiv.org/abs/1312.6114
@@ -674,8 +626,6 @@ def shannon_inf_score(m, m_hat):
         mce = 15
     if (math.isnan(mce)):
         print('nan detected')
-
-
     return mce
 
 def calculate_normalized_entropy(population):
@@ -1002,7 +952,7 @@ if __name__ == '__main__':
 
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.1,#TODO Change test size to 0.33
+                    "test_size": 0.15,#TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta":1,
                     "sigmoid_annealing_threshold": 0,
@@ -1018,13 +968,9 @@ if __name__ == '__main__':
     synthetic_data = True
     base_path = 'results/models/vae/'
 
-    ls_epochs = [100]
+    ls_epochs = [700]
     ls_latent_factors = [2]
-    ls_disentangle_factors = [0.5, 1] #TODO: Maybe try out 10 here , 10,1
-
-
-    # ls_epochs = [50, 500, 2000]
-    # ls_latent_factors = [3, 5, 10, 15]
+    ls_disentangle_factors = [3]
 
     for epoch in ls_epochs:
         for lf in ls_latent_factors:
@@ -1049,7 +995,7 @@ if __name__ == '__main__':
                 model_params['latent_dim'] = lf
                 model_params['beta'] = beta
                 model_params['synthetic_data'] = None
-                model_params['sigmoid_annealing_threshold'] = int(epoch/10)
+                model_params['sigmoid_annealing_threshold'] = int(epoch/4)
 
                 args.max_epochs = epoch
 
@@ -1059,8 +1005,8 @@ if __name__ == '__main__':
                                                         gpus=0,
                                                         weights_summary='full',
                                                         checkpoint_callback = False,
+                                                        callbacks = [EarlyStopping(monitor='train_loss')]
                 )
-
 
 
                 if(train):
@@ -1095,7 +1041,6 @@ if __name__ == '__main__':
 
                 # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
                 print('------ Start Test ------')
-                import time
                 start = time.time()
                 ig_m_hat_cnt = 0
                 ig_m_cnt = 0
@@ -1104,7 +1049,6 @@ if __name__ == '__main__':
                 print('% altering has provided information gain:{}'.format( int(ig_m_hat_cnt)/(int(ig_m_cnt)+int(ig_m_hat_cnt) )))
                 # print(results)
 
-                # %%
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
                 utils.plot_results(test_model,
                                    test_model.experiment_path_test,
@@ -1115,18 +1059,16 @@ if __name__ == '__main__':
                 artifact.add_dir(experiment_path)#, name='images'
                 wandb_logger.experiment.log_artifact(artifact)
 
-                import os
+
                 working_directory = os.path.abspath(os.getcwd())
                 absolute_path = working_directory + "/" + experiment_path + "images/"
                 ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
                 wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
 
-
                 #TODO Bring back in
 
                 # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
                 # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
-
                 print('Test done')
 
 #%%
