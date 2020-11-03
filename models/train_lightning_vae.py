@@ -171,6 +171,7 @@ class VAE(pl.LightningModule):
         self.small_dataset = self.hparams["small_dataset"]
         self.simplified_rating = self.hparams["simplified_rating"]
         self.max_epochs = self.hparams["max_epochs"]
+
         if(self.np_synthetic_data is None):
             self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
             self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
@@ -187,7 +188,7 @@ class VAE(pl.LightningModule):
                 'syn_attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
-        self.fc1 = nn.Linear(in_features=self.unique_movies, out_features=400) #input
+        self.fc1 = nn.Linear(in_features=40*5*4, out_features=400) #input
         self.fc11 = nn.Linear(in_features=400, out_features=100) #input
         self.encoder = nn.Sequential(self.fc1, self.fc11)
 
@@ -196,7 +197,7 @@ class VAE(pl.LightningModule):
         self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
 
         self.fc41 = nn.Linear(in_features=100, out_features=400)
-        self.fc42 = nn.Linear(in_features=400, out_features=self.unique_movies)
+        self.fc42 = nn.Linear(in_features=400, out_features=40*5*4)
         self.decoder = nn.Sequential(self.fc41, self.fc42)
 
         self.KLD = None
@@ -225,8 +226,8 @@ class VAE(pl.LightningModule):
         self.z_max_train = []
 
         # Initialize weights
-        # self.encoder.apply(self.weight_init)
-        # self.decoder.apply(self.weight_init)
+        self.encoder.apply(self.weight_init)
+        self.decoder.apply(self.weight_init)
 
         # self.ig_m_hat_cnt = 0
         # self.ig_m_cnt = 0
@@ -238,7 +239,8 @@ class VAE(pl.LightningModule):
 
     def weight_init(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_normal_(m.weight)
+            nn.init.xavier_normal_(m.weight)
+            # nn.init.orthogonal_(m.weight)
             m.bias.data.zero_()
 
     def encode(self, x):
@@ -261,6 +263,13 @@ class VAE(pl.LightningModule):
         z = self.reparameterize(mu, logvar)
         return z
 
+    def sample(self, mu, log_var):
+        std = torch.exp(log_var / 2)
+        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        q = torch.distributions.Normal(mu, std)
+        z = q.rsample()
+        return p, q, z
+
     def forward(self, x, **kwargs):
         #Si
 
@@ -268,12 +277,24 @@ class VAE(pl.LightningModule):
             z = kwargs['z']
             mu = kwargs['mu']
             logvar = kwargs['logvar']
+            p = None
+            q = None
         else:
-            mu, logvar = self.encode(x.view(-1, self.unique_movies))
-            z = self.compute_z(mu, logvar)
+            # print(x.view(-1, self.unique_movies)[0])
+            # print(x[0])
+            mu, logvar = self.encode(x) #40960/512 (Batchsize) results in 512,80
+            # z = self.compute_z(mu, logvar)
+            p, q, z = self.sample(mu, logvar)
             self.z = z
 
-        return self.decode(z), mu, logvar
+        return self.decode(z), mu, logvar, p, q
+
+    def _run_step(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_var(x)
+        p, q, z = self.sample(mu, log_var)
+        return z, self.decoder(z), p, q
 
     def load_dataset(self):
         if (self.small_dataset):
@@ -292,7 +313,7 @@ class VAE(pl.LightningModule):
     def train_dataloader(self):
         #TODO Change shuffle to True, just for dev purpose switched on
         train_loader = torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True
+            self.train_dataset, batch_size=512, shuffle=False, num_workers=0, pin_memory=True
         )
         return train_loader
 
@@ -359,10 +380,11 @@ class VAE(pl.LightningModule):
 
         print('train step')
         batch_len = batch.shape[0]
-        ts_batch_user_features = batch
-        recon_batch, ts_mu_chunk, ts_logvar_chunk = self.forward(ts_batch_user_features)  # sample data
+        ts_batch_user_features = batch.view(-1, 40*5*4)
+        recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)  # sample data
 
         # ls_preference = self.train_y[batch_idx * batch_len :(batch_idx + 1) * batch_len]
+
 
         if(self.current_epoch == self.max_epochs-1):
             print("Last round..")
@@ -373,7 +395,15 @@ class VAE(pl.LightningModule):
             mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
             self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
-        batch_mse, batch_kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
+        batch_mse, batch_kld = self.loss_function(recon_batch,
+                                                  ts_batch_user_features,
+                                                  ts_mu_chunk,
+                                                  ts_logvar_chunk,
+                                                  self.beta,
+                                                  self.unique_movies,
+                                                  p,
+                                                  q,
+                                                  new_kld_function = True)
         batch_loss = batch_mse + batch_kld
         self.ls_kld.append(self.KLD.tolist())
 
@@ -400,9 +430,9 @@ class VAE(pl.LightningModule):
         test_loss = 0
 
         # self.eval()
-        ts_batch_user_features = batch
+        ts_batch_user_features = batch.view(-1, 40*5*4)
 
-        recon_batch, ts_mu_chunk, ts_logvar_chunk = self(ts_batch_user_features)
+        recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
 
         self.np_z_test = np.append(self.np_z_test, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
@@ -411,7 +441,15 @@ class VAE(pl.LightningModule):
         # self.np_z = np.vstack((self.np_z, np_z_chunk))
 
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
-        batch_mse, kld = self.loss_function(recon_batch, ts_batch_user_features, ts_mu_chunk, ts_logvar_chunk, self.beta, self.unique_movies)
+        batch_mse, kld = self.loss_function(recon_batch,
+                                            ts_batch_user_features,
+                                            ts_mu_chunk,
+                                            ts_logvar_chunk,
+                                            self.beta,
+                                            self.unique_movies,
+                                            p,
+                                            q,
+                                            new_kld_function=True)
         batch_loss = batch_mse + kld
 
         mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
@@ -473,8 +511,33 @@ class VAE(pl.LightningModule):
             kld_weight = beta/(1+ math.exp(-epoch * stretch_factor + self.sigmoid_annealing_threshold)) #epoch_threshold moves e function along the x-axis
             return kld_weight
 
+    def kl_divergence(self,p, q):
+        return np.sum(np.where(p != 0, p * np.log(p / q), 0))
+
+
+    def step(self, batch, batch_idx):
+        x, y = batch
+        z, x_hat, p, q = self._run_step(x)
+
+        recon_loss = F.mse_loss(x_hat, x, reduction='mean')
+
+        log_qz = q.log_prob(z)
+        log_pz = p.log_prob(z)
+
+        kl = log_qz - log_pz
+        kl = kl.mean()
+
+    def new_kld_func(self, p, q):
+        log_qz = q.log_prob(self.z)
+        log_pz = p.log_prob(self.z)
+
+        kl = log_qz - log_pz
+
+        return kl
+
     # Reconstruction + KL divergence losses summed over all elements and batch
-    def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies):
+    def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies, p, q, new_kld_function=False):
+        from scipy.stats import norm
         zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
         one_mask = ~zero_mask
         # x = x[one_mask]
@@ -482,12 +545,21 @@ class VAE(pl.LightningModule):
         # MSE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
         MSE = F.mse_loss(x, recon_x)#/x.shape[1]
 
-        # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-        # https://arxiv.org/abs/1312.6114
+        if(new_kld_function):
+            kl = self.new_kld_func(p,q)
+            self.kld_matrix = np.append(self.kld_matrix, np.asarray(kl.tolist()), axis=0)
+            kld_mean = kl.mean()
+        else:
+            # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+            # https://arxiv.org/abs/1312.6114
 
-        kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
-        kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors, dim=0))
-        self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0)
+            # p = norm.pdf(recon_x[:,0].tolist(), mu[:,0].tolist(), logvar[:,0].tolist())
+            # q = norm.pdf(x[:,0].tolist(), 0, 1)
+            # kl_medium = self.kl_divergence(p,q)
+
+            kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
+            kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors, dim=1)) #0: sum over latent factors (columns), 1: sum over sample (rows)
+            self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0)
 
         if(self.training):
             kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
@@ -854,7 +926,7 @@ def mce_batch(model, ts_batch_features, k=0):
     dct_mce_mean = defaultdict()
     # hold n neurons of hidden layer
     # change 1 neuron
-    ls_y_hat, mu, logvar = model(ts_batch_features)
+    ls_y_hat, mu, logvar, p, q = model(ts_batch_features)
     z = model.z
     # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
 
@@ -862,7 +934,7 @@ def mce_batch(model, ts_batch_features, k=0):
         print("Calculate MCEs for position: {} in vector z".format(latent_factor_position))
         ts_altered_z = alter_z(z, latent_factor_position, model)
 
-        ls_y_hat_latent_changed, mu, logvar = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
+        ls_y_hat_latent_changed, mu, logvar, p, q = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
 
         ls_idx_y = (-ts_batch_features).argsort()
         ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
@@ -912,8 +984,8 @@ def mce_batch(model, ts_batch_features, k=0):
 
             # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             # single_mce = mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            single_mce = mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            ls_dct_mce.append(single_mce)
+            # single_mce = mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # ls_dct_mce.append(single_mce)
 
             # print(single_mce)
         dct_mce_mean[latent_factor_position] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
@@ -970,11 +1042,18 @@ if __name__ == '__main__':
 
     ls_epochs = [700]
     ls_latent_factors = [2]
-    ls_disentangle_factors = [3]
-
+    ls_betas = [] #disentangle_factors .0003
+    no_generative_factors = 2
+    # ls_latent_factors = [4]
+    # ls_betas = [0.001] #disentangle_factors
+    #TODO
+    # beta_normalized = lf/input_size, e.g. 2/10000 = 0.0002
     for epoch in ls_epochs:
         for lf in ls_latent_factors:
-            for beta in ls_disentangle_factors:
+            if(len(ls_betas)==0):
+                beta_normalized = lf/(400)
+                ls_betas.append(beta_normalized)
+            for beta in ls_betas:
                 train_tag = "train"
                 if(not train):
                     train_tag = "test"
@@ -1013,7 +1092,7 @@ if __name__ == '__main__':
                     print('<---------------------------------- VAE Training ---------------------------------->')
                     print("Running with the following configuration: \n{}".format(args))
                     if (synthetic_data):
-                        model_params['synthetic_data'], model_params['syn_y'] = utils.create_synthetic_data()
+                        model_params['synthetic_data'], model_params['syn_y'] = utils.create_synthetic_nd_data(no_generative_factors, experiment_path)
                         generate_distribution_df()
 
                     model = VAE(model_params)
@@ -1025,8 +1104,8 @@ if __name__ == '__main__':
                     trainer.fit(model)
 
                     kld_matrix = model.KLD
-                    print('% altering has provided information gain:{}'.format(
-                        int(ig_m_hat_cnt) / (int(ig_m_cnt) + int(ig_m_hat_cnt))))
+                    # print('% altering has provided information gain:{}'.format(
+                    #     int(ig_m_hat_cnt) / (int(ig_m_cnt) + int(ig_m_hat_cnt))))
 
                     # model.dis_KLD
                     print('------ Saving model ------')
@@ -1046,7 +1125,7 @@ if __name__ == '__main__':
                 ig_m_cnt = 0
                 trainer.test(test_model) #The test loop will not be used until you call.
                 print('Test time in seconds: {}'.format(time.time() - start))
-                print('% altering has provided information gain:{}'.format( int(ig_m_hat_cnt)/(int(ig_m_cnt)+int(ig_m_hat_cnt) )))
+                # print('% altering has provided information gain:{}'.format( int(ig_m_hat_cnt)/(int(ig_m_cnt)+int(ig_m_hat_cnt) )))
                 # print(results)
 
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
@@ -1063,13 +1142,23 @@ if __name__ == '__main__':
                 working_directory = os.path.abspath(os.getcwd())
                 absolute_path = working_directory + "/" + experiment_path + "images/"
                 ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
-                wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
+                # wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
+
+                dct_images = {img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for img_path in ls_path_images}
+                wandb.log(dct_images)
+
+
+
+                # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
+
 
                 #TODO Bring back in
 
                 # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
                 # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
                 print('Test done')
+
+    exit()
 
 #%%
 # plot_ae_img(batch_features,test_loader)
@@ -1087,3 +1176,4 @@ if __name__ == '__main__':
 # import plotly.express as px
 # df = px.data.iris()
 # print(df.head())
+
