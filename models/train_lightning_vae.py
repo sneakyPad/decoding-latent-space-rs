@@ -156,6 +156,7 @@ class VAE(pl.LightningModule):
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
         self.expanded_user_item = conf["expanded_user_item"]
+        self.mixup = conf["mixup"]
         self.np_synthetic_data = self.hparams["synthetic_data"]
         self.ls_syn_y = self.hparams["syn_y"]
         self.experiment_path_train = conf["experiment_path"]
@@ -189,9 +190,9 @@ class VAE(pl.LightningModule):
                 'syn_attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
-        input_dimension = 40*5*4 if self.expanded_user_item == True else 40
+        self.input_dimension = 40*5*4 if self.expanded_user_item == True else 40
 
-        self.fc1 = nn.Linear(in_features=input_dimension, out_features=400) #input
+        self.fc1 = nn.Linear(in_features=self.input_dimension, out_features=400) #input
         self.fc11 = nn.Linear(in_features=400, out_features=100) #input
         self.encoder = nn.Sequential(self.fc1, self.fc11)
 
@@ -200,7 +201,7 @@ class VAE(pl.LightningModule):
         self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
 
         self.fc41 = nn.Linear(in_features=100, out_features=400)
-        self.fc42 = nn.Linear(in_features=400, out_features=input_dimension)
+        self.fc42 = nn.Linear(in_features=400, out_features=self.input_dimension)
         self.decoder = nn.Sequential(self.fc41, self.fc42)
 
         self.KLD = None
@@ -399,10 +400,11 @@ class VAE(pl.LightningModule):
 
         print('train step')
         batch_len = batch.shape[0]
-        ts_batch_user_features = batch.view(-1, 40*5*4)
-        mixed_x, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, ts_batch_user_features, alpha=1.0, use_cuda=False)
+        ts_batch_user_features = batch.view(-1, self.input_dimension)
+        if(self.mixup):
+            ts_batch_user_features, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, ts_batch_user_features, alpha=1.0, use_cuda=False)
 
-        recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(mixed_x)  # sample data
+        recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)  # sample data
 
         # ls_preference = self.train_y[batch_idx * batch_len :(batch_idx + 1) * batch_len]
 
@@ -413,11 +415,11 @@ class VAE(pl.LightningModule):
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-            mce_minibatch = mce_batch(self, mixed_x, k=3)
+            mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
             self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
         batch_mse, batch_kld = self.loss_function(recon_batch,
-                                                  mixed_x, #ts_batch_user_features,
+                                                  ts_batch_user_features, #ts_batch_user_features,
                                                   ts_mu_chunk,
                                                   ts_logvar_chunk,
                                                   self.beta,
@@ -451,10 +453,12 @@ class VAE(pl.LightningModule):
         test_loss = 0
 
         # self.eval()
-        ts_batch_user_features = batch.view(-1, 40*5*4)
-        mixed_x, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, ts_batch_user_features, alpha=1.0, use_cuda=False)
+        ts_batch_user_features = batch.view(-1, self.input_dimension)
+        if (self.mixup):
+            ts_batch_user_features, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, ts_batch_user_features,
+                                                                    alpha=1.0, use_cuda=False)
 
-        recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self(mixed_x)
+        recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
 
         self.np_z_test = np.append(self.np_z_test, np.asarray(ls_z), axis=0) #TODO get rid of np_z_chunk and use np.asarray(mu_chunk)
@@ -464,7 +468,7 @@ class VAE(pl.LightningModule):
 
         batch_rmse_w_zeros, batch_mse_w_zeros, batch_rmse, batch_mse = self.calculate_batch_metrics(recon_batch=recon_batch, ts_batch_user_features =ts_batch_user_features)
         batch_mse, kld = self.loss_function(recon_batch,
-                                            mixed_x, #ts_batch_user_features,
+                                            ts_batch_user_features, #ts_batch_user_features,
                                             ts_mu_chunk,
                                             ts_logvar_chunk,
                                             self.beta,
@@ -1061,13 +1065,14 @@ if __name__ == '__main__':
     train = True
     synthetic_data = True
     expanded_user_item = False
+    mixup = True
     hessian_penalty = False
     base_path = 'results/models/vae/'
 
     ls_epochs = [700]
-    ls_latent_factors = [2]
+    ls_latent_factors = [3]
     ls_betas = [] #disentangle_factors .0003
-    no_generative_factors = 2
+    no_generative_factors = 3
     # ls_latent_factors = [4]
     # ls_betas = [0.001] #disentangle_factors
     #TODO
@@ -1103,6 +1108,7 @@ if __name__ == '__main__':
                 model_params['synthetic_data'] = None
                 model_params['sigmoid_annealing_threshold'] = int(epoch/6)
                 model_params['expanded_user_item'] = expanded_user_item
+                model_params['mixup'] = mixup
 
                 args.max_epochs = epoch
 
@@ -1123,8 +1129,8 @@ if __name__ == '__main__':
                         model_params['synthetic_data'], model_params['syn_y'] = utils.create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item)
                         generate_distribution_df()
 
-                    model = (model_params)
-                    # wandb_logger.watch(model, log='gradients', log_freq=100)
+                    model = VAE(model_params)
+                    wandb_logger.watch(model, log='gradients', log_freq=100)
 
                     # utils.print_nn_summary(model, size =200)
 
