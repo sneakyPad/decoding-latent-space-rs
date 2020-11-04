@@ -236,7 +236,7 @@ def create_synthetic_data(no_generative_factors, experiment_path, expanded_user_
     if(expanded_user_item):
         # return create_synthetic_3d_data()
         return create_synthetic_data_nd(no_generative_factors, experiment_path)
-    
+
     return create_synthetic_data_simple(no_generative_factors, experiment_path)
 
 def create_synthetic_data_simple(no_generative_factors, experiment_path):

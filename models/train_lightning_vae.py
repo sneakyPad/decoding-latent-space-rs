@@ -155,7 +155,7 @@ class VAE(pl.LightningModule):
 
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
-        self.expanded_user_item = self.hparams["expanded_user_item"]
+        self.expanded_user_item = conf["expanded_user_item"]
         self.np_synthetic_data = self.hparams["synthetic_data"]
         self.ls_syn_y = self.hparams["syn_y"]
         self.experiment_path_train = conf["experiment_path"]
@@ -168,7 +168,7 @@ class VAE(pl.LightningModule):
         self.no_latent_factors = self.hparams["latent_dim"]
         self.max_unique_movies = 0
         self.unique_movies =0
-        self.np_user_item = NVAEone
+        self.np_user_item = None
         self.small_dataset = self.hparams["small_dataset"]
         self.simplified_rating = self.hparams["simplified_rating"]
         self.max_epochs = self.hparams["max_epochs"]
@@ -1061,6 +1061,7 @@ if __name__ == '__main__':
     train = True
     synthetic_data = True
     expanded_user_item = False
+    hessian_penalty = False
     base_path = 'results/models/vae/'
 
     ls_epochs = [700]
@@ -1075,8 +1076,9 @@ if __name__ == '__main__':
         for lf in ls_latent_factors:
             if(len(ls_betas)==0):
                 if(expanded_user_item):
-
-                 beta_normalized = lf/(800)
+                    beta_normalized = lf/(800)
+                else:
+                    beta_normalized = lf / (20 * no_generative_factors)
                 ls_betas.append(beta_normalized)
             for beta in ls_betas:
                 train_tag = "train"
@@ -1122,7 +1124,7 @@ if __name__ == '__main__':
                         generate_distribution_df()
 
                     model = (model_params)
-                    wandb_logger.watch(model, log='gradients', log_freq=100)
+                    # wandb_logger.watch(model, log='gradients', log_freq=100)
 
                     # utils.print_nn_summary(model, size =200)
 
