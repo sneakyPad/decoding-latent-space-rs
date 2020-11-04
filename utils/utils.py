@@ -80,7 +80,7 @@ def compute_relative_frequency(df_meta):
     return dct_rel_freq
     # save_dict_as_json(dct_rel_freq, 'relative_frequency.json')
 
-def create_synthetic_nd_data(no_generative_factors, experiment_path):
+def create_synthetic_data_nd(no_generative_factors, experiment_path):
     no_samples = 20
     genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama', 'Romance','Comedy', 'War','Adventure', 'Family']
     year = [1980, 1990, 2000, 2010, 2020]
@@ -232,8 +232,14 @@ def create_synthetic_3d_data(no_generative_factors, experiment_path):
     print("Shape of User-Item Matrix:{}".format(np_user_item.shape))
     return np_user_item, ls_y
 
+def create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item):
+    if(expanded_user_item):
+        # return create_synthetic_3d_data()
+        return create_synthetic_data_nd(no_generative_factors, experiment_path)
+    
+    return create_synthetic_data_simple(no_generative_factors, experiment_path)
 
-def create_synthetic_data(no_generative_factors, experiment_path):
+def create_synthetic_data_simple(no_generative_factors, experiment_path):
     no_samples = 20
     genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama', 'Romance','Comedy', 'War','Adventure', 'Family']
     year = ['1980', '1990', '2000', '2010', '2020']
