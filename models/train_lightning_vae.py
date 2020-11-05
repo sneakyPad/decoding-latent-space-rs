@@ -3,6 +3,7 @@
 #%%
 from __future__ import print_function
 import wandb
+# from hessian_penalty_pytorch import hessian_penalty
 from pytorch_lightning.loggers import WandbLogger
 import torch, torch.nn as nn, torchvision, torch.optim as optim
 from tqdm import tqdm
@@ -36,7 +37,7 @@ import wandb
 from scipy.stats import entropy
 import time
 import os
-
+from utils import dis_utils
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -155,8 +156,9 @@ class VAE(pl.LightningModule):
 
         # self.kwargs = kwargs
         self.save_hyperparameters(conf)
-        self.expanded_user_item = conf["expanded_user_item"]
-        self.mixup = conf["mixup"]
+        self.expanded_user_item = self.hparams["expanded_user_item"]
+        self.generative_factors = self.hparams["generative_factors"]
+        self.mixup = self.hparams["mixup"]
         self.np_synthetic_data = self.hparams["synthetic_data"]
         self.ls_syn_y = self.hparams["syn_y"]
         self.experiment_path_train = conf["experiment_path"]
@@ -190,7 +192,8 @@ class VAE(pl.LightningModule):
                 'syn_attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
-        self.input_dimension = 40*5*4 if self.expanded_user_item == True else 40
+        self.input_dimension = int(self.unique_movies *math.pow(4, self.generative_factors)) if self.expanded_user_item == True else self.unique_movies
+
 
         self.fc1 = nn.Linear(in_features=self.input_dimension, out_features=400) #input
         self.fc11 = nn.Linear(in_features=400, out_features=100) #input
@@ -427,6 +430,10 @@ class VAE(pl.LightningModule):
                                                   p,
                                                   q,
                                                   new_kld_function = True)
+        # if(self.hessian_penalty):
+        #     hp_loss = hessian_penalty(G=self, z=recon_batch)
+        #     loss.backward()
+
         batch_loss = batch_mse + batch_kld
         self.ls_kld.append(self.KLD.tolist())
 
@@ -622,12 +629,14 @@ class VAE(pl.LightningModule):
             np_yhat_wo_zeros = np_yhat[np.nonzero(np_y)] #This must be np_y
 
             rmse, mse = utils.calculate_metrics(np_y, np_yhat)
-            rmse_wo_zeros, mse_wo_zeros = utils.calculate_metrics(np_y_wo_zeros, np_yhat_wo_zeros)
-            batch_rmse += rmse
-            batch_rmse_wo_zeros += rmse_wo_zeros
-
             batch_mse += mse
-            batch_mse_wo_zeros += mse_wo_zeros
+            batch_rmse += rmse
+
+            if(len(np_yhat_wo_zeros)>0):
+                rmse_wo_zeros, mse_wo_zeros = utils.calculate_metrics(np_y_wo_zeros, np_yhat_wo_zeros)
+                batch_rmse_wo_zeros += rmse_wo_zeros
+                batch_mse_wo_zeros += mse_wo_zeros
+
         # batch_rmse, batch_mse = utils.calculate_metrics(ts_batch_user_features,ls_yhat_user)
         avg_rmse = batch_rmse / ls_yhat_user.shape[0]
         avg_rmse_wo_zeros = batch_rmse_wo_zeros / ls_yhat_user.shape[0]
@@ -1062,7 +1071,7 @@ if __name__ == '__main__':
     # print(merged_params)
 
     #%%
-    train = True
+    train = False
     synthetic_data = True
     expanded_user_item = False
     mixup = True
@@ -1070,8 +1079,8 @@ if __name__ == '__main__':
     base_path = 'results/models/vae/'
 
     ls_epochs = [700]
-    ls_latent_factors = [3]
-    ls_betas = [] #disentangle_factors .0003
+    ls_latent_factors = [5]
+    ls_betas = [3] #disentangle_factors .0003
     no_generative_factors = 3
     # ls_latent_factors = [4]
     # ls_betas = [0.001] #disentangle_factors
@@ -1109,6 +1118,7 @@ if __name__ == '__main__':
                 model_params['sigmoid_annealing_threshold'] = int(epoch/6)
                 model_params['expanded_user_item'] = expanded_user_item
                 model_params['mixup'] = mixup
+                model_params['generative_factors'] = no_generative_factors
 
                 args.max_epochs = epoch
 
@@ -1142,6 +1152,8 @@ if __name__ == '__main__':
                     #     int(ig_m_hat_cnt) / (int(ig_m_cnt) + int(ig_m_hat_cnt))))
 
                     # model.dis_KLD
+
+
                     print('------ Saving model ------')
                     trainer.save_checkpoint(model_path)
                     model.save_attributes(attribute_path)
@@ -1163,10 +1175,16 @@ if __name__ == '__main__':
                 # print(results)
 
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
-                utils.plot_results(test_model,
-                                   test_model.experiment_path_test,
-                                   test_model.experiment_path_train,
-                                   dct_param )
+
+
+
+
+                # utils.plot_results(test_model,
+                #                    test_model.experiment_path_test,
+                #                    test_model.experiment_path_train,
+                #                    dct_param )
+
+                dis_utils.run_disentanglement_eval(test_model)
 
                 artifact = wandb.Artifact('Plots', type='result')
                 artifact.add_dir(experiment_path)#, name='images'

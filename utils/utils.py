@@ -1,25 +1,22 @@
 import torch
 import json
-import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from sklearn import manifold, decomposition
+from sklearn import decomposition
 from sklearn.metrics import mean_squared_error
-
+import math
 from torchsummaryX import summary
 from datetime import datetime
-import os
 import random
-import numpy as np
 from tqdm import tqdm
 import ast
 import itertools
 from collections import Counter
-import matplotlib.pyplot as plt
-import matplotlib.transforms as mtransforms
-import numpy as np
 import plotly.express as px
-from time import sleep
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+
 def my_eval(expression):
     try:
         return ast.literal_eval(str(expression))
@@ -82,9 +79,9 @@ def compute_relative_frequency(df_meta):
 
 def create_synthetic_data_nd(no_generative_factors, experiment_path):
     no_samples = 20
-    genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama', 'Romance','Comedy', 'War','Adventure', 'Family']
-    year = [1980, 1990, 2000, 2010, 2020]
-    stars = ['Tom Hanks', 'Tim Allen', 'Don Rickles','Robin Williams', 'Kirsten Dunst', 'Bonnie Hunt']
+    genres = ['Crime', 'Mystery', 'Thriller', 'Action']
+    year = [1980, 1990, 2000, 2010]
+    stars = ['Tom Hanks', 'Tim Allen', 'Don Rickles','Robin Williams']
     rating = [7, 8, 9, 10]
 
     # dct_base_data ={'genres': genres, 'year': year, 'stars': stars, 'rating': rating}#
@@ -99,7 +96,10 @@ def create_synthetic_data_nd(no_generative_factors, experiment_path):
 
     n_users = 1800
     n_movies = len(ls_attributes * no_samples)
-    np_user_item = np.zeros((n_users,n_movies,len(year), len(rating)),dtype="float32")
+    if(no_generative_factors==2):
+        np_user_item = np.zeros((n_users,n_movies,len(year), len(rating)),dtype="float32")
+    else:
+        np_user_item = np.zeros((n_users,n_movies,len(year), len(rating), len(genres)),dtype="float32")
 
     #Create movies by sampling
     for attribute in ls_attributes:
@@ -113,7 +113,7 @@ def create_synthetic_data_nd(no_generative_factors, experiment_path):
                 if(other_attribute == 'rating' or other_attribute == 'year'):
                     movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=1)[0]
                 else:
-                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=2)
+                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=1)[0] #k= number of samples
 
 
             ls_movies.append(movie)
@@ -124,6 +124,7 @@ def create_synthetic_data_nd(no_generative_factors, experiment_path):
     df_synthentic_data.to_csv('../data/generated/syn.csv', index=False)
     df_rating = pd.get_dummies(df_synthentic_data['rating'])
     df_year = pd.get_dummies(df_synthentic_data['year'])
+    df_genres = pd.get_dummies(df_synthentic_data['genres'])
 
     ls_y = []
     no_users_with_same_preference = int(n_users / len(ls_attributes))
@@ -144,7 +145,13 @@ def create_synthetic_data_nd(no_generative_factors, experiment_path):
 
             years = df_year.iloc[seen].values
             ratings = df_rating.iloc[seen].values
-            np_user_item[user_idx,seen,np.argmax(years, axis=1), np.argmax(ratings, axis=1)] = 1 #e.g.: np_user_item[user_idx,[0,1]] = [[1980,7],[1990,8]]
+            genres = df_genres.iloc[seen].values
+            if(no_generative_factors == 2):
+                np_user_item[user_idx, seen, np.argmax(years, axis=1), np.argmax(ratings, axis=1)] = 1  # e.g.: np_user_item[user_idx,[0,1]] = [[1980,7],[1990,8]]
+
+            else:
+                np_user_item[user_idx, seen, np.argmax(years, axis=1), np.argmax(ratings, axis=1), np.argmax(genres,axis=1)] = 1  # e.g.: np_user_item[user_idx,[0,1]] = [[1980,7],[1990,8]]
+
             ls_y.append(attribute)
         # df_synthentic_data.loc[start:end, 'y'] = ls_attributes[i]
     # print(ls_movies)
