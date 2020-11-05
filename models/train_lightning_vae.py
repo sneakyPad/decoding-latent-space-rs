@@ -7,11 +7,7 @@ import wandb
 from pytorch_lightning.loggers import WandbLogger
 import torch, torch.nn as nn, torchvision, torch.optim as optim
 from tqdm import tqdm
-from pytorch_lightning import Trainer
 from sklearn.model_selection import train_test_split
-# import recmetrics
-# from surprise import Reader, SVD, Dataset
-# from surprise.model_selection import train_test_split
 import ast
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from collections import defaultdict
@@ -22,10 +18,9 @@ from torch.nn import functional as F
 from torch.optim.lr_scheduler import StepLR
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
-import matplotlib.pyplot as plt
 import math
 import pytorch_lightning as pl
-import utils.utils as utils
+# import utils.plot_utils as utils
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -36,7 +31,7 @@ import wandb
 from scipy.stats import entropy
 import time
 import os
-from utils import dis_utils, training_utils
+from utils import dis_utils, training_utils, plot_utils, data_utils, utils, metric_utils
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -60,84 +55,11 @@ from utils import dis_utils, training_utils
 
 seed = 42
 torch.manual_seed(seed)
-
-
 ig_m_cnt = 0
 ig_m_hat_cnt =0
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
 ##Shape: (n_user, n_items)
-max_unique_movies = 0
-unique_movies = 0
-dct_index2itemId={}
-def extract_rating_information(df, hack):
-    user_item_mx_offset = 0 #TODO This is rather a hack, consider to remove it
-    if(hack):
-        user_item_mx_offset = 1 #needed by the manual_create_user_item_matrix()
-    unique_movies = len(df["movieId"].unique()) + user_item_mx_offset
-    max_unique_movies = df["movieId"].unique().max() + user_item_mx_offset
-    ls_users = df["userId"].unique()
-    unique_users = len(df["userId"].unique()) + user_item_mx_offset
-    print('Unique movies: {}\nMax unique movies:{}\nUnique users: {}'.format(unique_movies, max_unique_movies, unique_users))
-
-    return unique_movies, max_unique_movies, ls_users, unique_users
-
-def pivot_create_user_item_matrix(df: pd.DataFrame, simplified_rating: bool):
-    print('---- Create User Item Matrix: Pivot Style----')
-    global max_unique_movies
-    global unique_movies
-    unique_movies, max_unique_movies, ls_users, unique_users = extract_rating_information(df, False)
-
-    if(simplified_rating):
-        df['rating'] = 1
-
-    df_user_item = df.pivot(index="userId", columns="movieId", values="rating")
-    df_user_item = df_user_item.fillna(0)
-    ##Create Mapping
-    # dct_index2itemId ={}
-    for index, item_id in enumerate(df_user_item.columns):
-        dct_index2itemId[index]=item_id
-
-    np_user_item = df_user_item.to_numpy()
-    print('Shape of Matrix:{}'.format(np_user_item.shape))
-    print('Stucture of the matrix: \n ______| movie_1 | movie_2 | ... | movie_n \n user_1| \n user_2| \n ... \n user_m|')
-
-    return np_user_item.astype(np.float32), unique_movies
-
-
-def manual_create_user_item_matrix(df, simplified_rating: bool):
-    print('---- Create User Item Matrix: Manual Style ----')
-    global max_unique_movies
-    unique_movies, max_unique_movies, ls_users, unique_users = extract_rating_information(df, True)
-    np_user_item_mx = np.zeros((unique_users, max_unique_movies), dtype=np.float_) #type: nd_array[[]]
-    print('Shape of Matrix:{}'.format(np_user_item_mx.shape))
-
-    print('Fill user-item matrix...')
-    print('Stucture of the matrix: \n ______| movie_1 | movie_2 | ... | movie_n \n user_1| \n user_2| \n ... \n user_m|')
-    for user_id in ls_users:
-        # if(user_id%100 == 0):
-        #     print("User-Id: {} ".format(user_id))
-        ls_seen_items = df.loc[df["userId"] == user_id]["movieId"].values
-        if(simplified_rating):
-            np_user_item_mx[user_id][ls_seen_items] = 1 #TODO what happens to row 0?
-        else:
-            #Normalize values
-            from sklearn import preprocessing
-            from sklearn.preprocessing import normalize
-
-            # min_max_scaler = preprocessing.MinMaxScaler()
-
-            ls_rated_items = df.loc[df["userId"] == user_id]["rating"].values
-            # df_array = ls_rated_items.reshape(-1, 1)
-            # ls_normalized_ratings = preprocessing.normalize(df_array, axis=0)
-
-            # ls_normalized_ratings = normalize(ls_rated_items, norm='max', axis=1)
-            # ls_normalized_ratings = min_max_scaler.fit_transform(ls_rated_items)
-            ls_normalized_ratings = [float(i) / max(ls_rated_items) for i in ls_rated_items]
-            # ls_normalized_ratings = (ls_rated_items - ls_rated_items.min()) / (ls_rated_items.max() - ls_rated_items.min())
-            np_user_item_mx[user_id][ls_seen_items] = ls_normalized_ratings
-    return np_user_item_mx.astype(np.float32), max_unique_movies
-
 
 def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter: bool):
     # user_based_items_filter == True is what most people do
@@ -174,6 +96,7 @@ class VAE(pl.LightningModule):
         self.small_dataset = self.hparams["small_dataset"]
         self.simplified_rating = self.hparams["simplified_rating"]
         self.max_epochs = self.hparams["max_epochs"]
+        self.dct_index2itemId = None
 
         if(self.np_synthetic_data is None):
             self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
@@ -312,7 +235,7 @@ class VAE(pl.LightningModule):
             df_ratings = pd.read_csv("../data/movielens/large/ratings.csv")
 
         print('Shape of dataset:{}'.format(df_ratings.shape))
-        self.np_user_item, self.unique_movies = pivot_create_user_item_matrix(df_ratings,True)#manual_create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
+        self.np_user_item, self.unique_movies, self.max_unique_movies, self.dct_index2itemId = data_utils.pivot_create_user_item_matrix(df_ratings,True)#manual_create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
         # self.np_user_item, self.max_unique_movies = manual_create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
         self.train_dataset, self.test_dataset = train_test_split(self.np_user_item, test_size=self.test_size, random_state=42)
 
@@ -417,7 +340,7 @@ class VAE(pl.LightningModule):
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-            mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
+            mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
             self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
         batch_mse, batch_kld = self.loss_function(recon_batch,
@@ -484,7 +407,7 @@ class VAE(pl.LightningModule):
                                             new_kld_function=True)
         batch_loss = batch_mse + kld
 
-        mce_minibatch = mce_batch(self, ts_batch_user_features, k=3)
+        mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
         self.mce_batch_test = self.average_mce_batch(self.mce_batch_test, mce_minibatch)
 
         #to be rermoved mean_mce = { for single_mce in batch_mce}
@@ -627,12 +550,12 @@ class VAE(pl.LightningModule):
             np_yhat = tensor.data.numpy()
             np_yhat_wo_zeros = np_yhat[np.nonzero(np_y)] #This must be np_y
 
-            rmse, mse = utils.calculate_metrics(np_y, np_yhat)
+            rmse, mse = metric_utils.calculate_metrics(np_y, np_yhat)
             batch_mse += mse
             batch_rmse += rmse
 
             if(len(np_yhat_wo_zeros)>0):
-                rmse_wo_zeros, mse_wo_zeros = utils.calculate_metrics(np_y_wo_zeros, np_yhat_wo_zeros)
+                rmse_wo_zeros, mse_wo_zeros = metric_utils.calculate_metrics(np_y_wo_zeros, np_yhat_wo_zeros)
                 batch_rmse_wo_zeros += rmse_wo_zeros
                 batch_mse_wo_zeros += mse_wo_zeros
 
@@ -677,232 +600,6 @@ def my_eval(expression):
     except ValueError: #e.g. an entry is nan, in that case just return an empty string
         return ''
 
-def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
-    # dct_dist = pickle.load(movies_distribution)
-
-    dct_mce = defaultdict(float)
-    for idx_vector in range(y_hat.shape[0]):
-        for attribute in y_hat:
-            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline']):
-                ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
-                ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
-                mean = 0
-                cnt_same = 0
-                mce=0
-                try:
-                    #Two cases: Either cell contains multiple values, than it is a list
-                    #or it contains a single but not in a list. In that case put it in a list
-                    if(type(ls_y_latent_attribute_val) is not list):
-                        ls_y_latent_attribute_val = [ls_y_latent_attribute_val]
-                        ls_y_attribute_val =[ls_y_attribute_val]
-
-                    #Go through elements of a cell
-                    for value in ls_y_latent_attribute_val: #same as characteristic
-                        if(value in ls_y_attribute_val): #if no change, assign highest error
-                            # mean += 1
-                            mce +=1
-                            # ls_y_latent_attribute_val.pop(value)
-
-                        else:
-                            # characteristic = y_hat.loc[idx_vector, attribute]
-                            relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
-                            mce += relative_frequency
-                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
-                    #if no values are presented in the current cell than assign highest error
-                    if(len(ls_y_latent_attribute_val)==0):
-                        mce =1
-                    else:
-                        mce = mce/len(ls_y_latent_attribute_val)
-                    # print('Attribute: {}, mce:{}'.format(attribute, mce))
-
-                    dct_mce[attribute] = mce
-                except (KeyError, TypeError, ZeroDivisionError) as e:
-                    print("Error Value:{}".format(value))
-
-    return dct_mce
-
-def shannon_inf_score(m, m_hat):
-    epsilon = 1e-10
-    shannon_inf = - math.log(m_hat) + epsilon
-    mce = 1 / shannon_inf * math.exp(m_hat - m)
-
-    if (mce < 0):
-        print('fo')
-    if (mce > 15):
-        mce = 15
-    if (math.isnan(mce)):
-        print('nan detected')
-    return mce
-
-def calculate_normalized_entropy(population):
-    H=0
-    H_n =0
-    try:
-        if(len(population) == 1): #only one attribute is present
-            H = - (population[0] * math.log(population[0], 2))
-            return H
-        else:
-            # for rf in population:
-            #     H_n = - (rf * math.log(rf, 2)) /math.log(len(population), 2)
-
-
-            H_scipy = entropy(population, base=2)
-            H_n = H_scipy / math.log(len(population), 2)
-            # print(H_scipy, H_n)
-            # assert H_scipy == H_n
-    except ValueError:
-        print('f')
-
-
-    return H_n
-
-def information_gain(m, m_hat, dct_population):
-    global ig_m_cnt
-    global ig_m_hat_cnt
-    ls_population_rf = [val for key, val in dct_population.items()]
-    population_entropy = calculate_normalized_entropy(ls_population_rf)
-
-    if(type(m) is not list):
-        m = [m]
-    if(type(m_hat) is not list):
-        m_hat = [m_hat]
-
-    m_entropy = calculate_normalized_entropy(m)
-    m_hat_entropy = calculate_normalized_entropy(m_hat)
-
-    ig_m = population_entropy - m_entropy
-    ig_m_hat = population_entropy - m_hat_entropy
-
-    if(ig_m_hat > ig_m): #This means it was more unlikely so we gain information. Goal is to get to 1
-        ig_m_hat_cnt +=1
-        # return ig_m_hat
-
-    ig_m_cnt += 1
-    return ig_m_hat - ig_m
-
-def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
-    # dct_dist = pickle.load(movies_distribution)
-
-    dct_mce = defaultdict(float)
-    for idx_vector in range(y_hat.shape[0]):
-        for attribute in y_hat:
-            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline','id']):
-                ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
-                ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
-                mean = 0
-                cnt_same = 0
-                mce=0
-                m_hat = 0
-                m = 0
-
-                try:
-                    #Two cases: Either cell contains multiple values, than it is a list
-                    #or it contains a single but not in a list. In that case put it in a list
-                    if(type(ls_y_latent_attribute_val) is not list):
-                        ls_y_latent_attribute_val = [ls_y_latent_attribute_val]
-                        ls_y_attribute_val =[ls_y_attribute_val]
-
-                    if (len(ls_y_attribute_val) == 0):
-                        break
-
-                    ls_m_hat_rf=[]
-                    #Go through elements of a cell
-                    for value in ls_y_latent_attribute_val: #same as characteristic
-                        # if(value in ls_y_attribute_val): #if no change, assign highest error
-                            # mean += 1
-                            # m_hat +=1
-
-                            # ls_y_latent_attribute_val.pop(value)
-
-                        # else:
-                            # characteristic = y_hat.loc[idx_vector, attribute]
-                            y_hat_latent_attribute_relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
-                            m_hat += y_hat_latent_attribute_relative_frequency
-                            ls_m_hat_rf.append(y_hat_latent_attribute_relative_frequency)
-                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
-                    #if no values are presented in the current cell than assign highest error
-                    if(len(ls_y_latent_attribute_val)==0):
-                        # mce =15
-                        #TODO sth else than just break, maybe mce = -1?
-                        break
-                    else:
-                        #rf = relative frequency
-                        dct_population = dct_attribute_distribution[attribute]['relative']
-
-                        ls_y_hat_rf = [dct_population[str(val)] for val in ls_y_attribute_val]
-                        m = np.asarray(ls_y_hat_rf).mean()
-                        m_hat = m_hat/len(ls_y_latent_attribute_val)
-
-                        mce = information_gain(ls_y_hat_rf, ls_m_hat_rf, dct_population)
-                        # mce = shannon_inf_score(m, m_hat)
-
-                    prev_mce = dct_mce.get(attribute)
-                    if (prev_mce):
-                        dct_mce[attribute] = (prev_mce + mce) / 2
-                    else:
-                        dct_mce[attribute] = mce
-                except (KeyError, TypeError, ZeroDivisionError) as e:
-                    print("Error Value:{}".format(value))
-
-    return dct_mce
-
-
-
-def mce_shannon_inf(y_hat, y_hat_latent, dct_attribute_distribution):
-    # dct_dist = pickle.load(movies_distribution)
-
-    dct_mce = defaultdict(float)
-    for idx_vector in range(y_hat.shape[0]):
-        for attribute in y_hat:
-            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline']):
-                ls_y_attribute_val = my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
-                ls_y_latent_attribute_val = my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
-                mean = 0
-                cnt_same = 0
-                mce=0
-                m_hat = 0
-                m = 0
-
-                try:
-                    #Two cases: Either cell contains multiple values, than it is a list
-                    #or it contains a single but not in a list. In that case put it in a list
-                    if(type(ls_y_latent_attribute_val) is not list):
-                        ls_y_latent_attribute_val = [ls_y_latent_attribute_val]
-                        ls_y_attribute_val =[ls_y_attribute_val]
-
-                    if (len(ls_y_attribute_val) == 0):
-                        break
-
-                    #Go through elements of a cell
-                    for value in ls_y_latent_attribute_val: #same as characteristic
-                        if(value in ls_y_attribute_val): #if no change, assign highest error
-                            # mean += 1
-                            m_hat +=1
-                            # ls_y_latent_attribute_val.pop(value)
-
-                        else:
-                            # characteristic = y_hat.loc[idx_vector, attribute]
-                            y_hat_latent_attribute_relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
-                            m_hat += y_hat_latent_attribute_relative_frequency
-                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
-                    #if no values are presented in the current cell than assign highest error
-                    if(len(ls_y_latent_attribute_val)==0):
-                        mce =15
-                    else:
-                        #rf = relative frequency
-
-                        ls_y_hat_rf = [dct_attribute_distribution[attribute]['relative'][str(val)] for val in ls_y_attribute_val]
-                        m = np.asarray(ls_y_hat_rf).mean()
-                        m_hat = m_hat/len(ls_y_latent_attribute_val)
-
-                        mce = shannon_inf_score(m, m_hat)
-
-                    dct_mce[attribute] = mce
-                except (KeyError, TypeError, ZeroDivisionError) as e:
-                    print("Error Value:{}".format(value))
-
-    return dct_mce
-
 
 
 def calculate_mean_of_ls_dict(ls_dict: list):
@@ -916,13 +613,13 @@ def calculate_mean_of_ls_dict(ls_dict: list):
     print(dct_mean)
     return dct_mean
 
-def match_metadata(indezes, df_links, df_movies, synthetic):
+def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
     # ls_indezes = y_hat.values.index
     #TODO Source read_csv out
     # df_links = pd.read_csv('../data/movielens/small/links.csv')
     # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
 
-    global dct_index2itemId
+
     # if(synthetic == False):
     ls_filter = ['languages','directors','writer', 'writers',
                  'countries','runtimes', 'aspect_ratio', 'color_info',
@@ -956,7 +653,7 @@ def alter_z(ts_z, latent_factor_position, model):
     return ts_z
 
 #MCE is calculated for each category
-def mce_batch(model, ts_batch_features, k=0):
+def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
     dct_mce_mean = defaultdict()
     # hold n neurons of hidden layer
     # change 1 neuron
@@ -1131,7 +828,7 @@ if __name__ == '__main__':
 
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
 
-                # utils.plot_results(test_model,
+                # result_utils.plot_results(test_model,
                 #                    test_model.experiment_path_test,
                 #                    test_model.experiment_path_train,
                 #                    dct_param )

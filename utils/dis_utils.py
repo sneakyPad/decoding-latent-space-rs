@@ -33,7 +33,7 @@ def normalize_datasets(datasets, zshot):
     return datasets
 
 
-def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_time=False, save_plot=False, n_models=1, n_z=0, m_codes=None, gts = None, zshot=False, model_names = None, figs_dir = None):
+def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_time=False, save_plot=False, n_models=1, n_z=0, m_codes=None, gts = None, zshot=False, model_names = None, n_c=None, figs_dir = None):
     # lists to store scores
     m_disent_scores = [] * n_models
     m_complete_scores = [] * n_models
@@ -206,4 +206,4 @@ def run_disentanglement_eval(test_model):
                            test_time,
                            save_plot,
                            n_models,
-                           n_z, m_codes,gts, zshot, model_names, figs_dir)
+                           n_z, m_codes,gts, zshot, model_names, n_c, figs_dir)
