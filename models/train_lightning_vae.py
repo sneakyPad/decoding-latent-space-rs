@@ -15,7 +15,6 @@ from sklearn.model_selection import train_test_split
 import ast
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from collections import defaultdict
-import argparse
 import torch
 import torch.utils.data
 from torch import nn, optim
@@ -37,7 +36,7 @@ import wandb
 from scipy.stats import entropy
 import time
 import os
-from utils import dis_utils
+from utils import dis_utils, training_utils
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -1033,42 +1032,9 @@ def generate_distribution_df():
     utils.save_dict_as_json(dct_attribute_distribution, 'syn_attribute_distribution.json')
 
 if __name__ == '__main__':
-
-    train_dataset = None
-    test_dataset = None
-    max_epochs = 20
-
-    parser = argparse.ArgumentParser(description='VAE MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
-                        help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=1, metavar='N',
-                        help='number of epochs to train (default: 10)')
-    parser.add_argument('--max_epochs', type=int, default=max_epochs, metavar='N',
-                        help='number of max epochs to train (default: 15)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='enables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                        help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=0, metavar='N',
-                        help='how many batches to wait before logging training status')
-    args = parser.parse_args()
-
-
     torch.manual_seed(100)
+    args = training_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
-
-    model_params = {"simplified_rating": True,
-                    "small_dataset": True,
-                    "test_size": 0.15,#TODO Change test size to 0.33
-                    "latent_dim": 3,
-                    "beta":1,
-                    "sigmoid_annealing_threshold": 0,
-                    "max_epochs": max_epochs}
-    # model_params.update(args.__dict__)
-    # print(**model_params)
-
-    merged_params = (lambda first_dict, second_dict: {**first_dict, **second_dict})(args.__dict__, model_params)
-    # print(merged_params)
 
     #%%
     train = False
@@ -1082,17 +1048,14 @@ if __name__ == '__main__':
     ls_latent_factors = [5]
     ls_betas = [3] #disentangle_factors .0003
     no_generative_factors = 3
-    # ls_latent_factors = [4]
-    # ls_betas = [0.001] #disentangle_factors
-    #TODO
-    # beta_normalized = lf/input_size, e.g. 2/10000 = 0.0002
+
     for epoch in ls_epochs:
         for lf in ls_latent_factors:
             if(len(ls_betas)==0):
                 if(expanded_user_item):
                     beta_normalized = lf/(800)
                 else:
-                    beta_normalized = lf / (20 * no_generative_factors)
+                    beta_normalized = lf / (20 * no_generative_factors) #lf/input_size, e.g. 2/10000 = 0.0002
                 ls_betas.append(beta_normalized)
             for beta in ls_betas:
                 train_tag = "train"
@@ -1109,16 +1072,8 @@ if __name__ == '__main__':
 
                 experiment_path = utils.create_experiment_directory()
 
-
-                model_params['experiment_path'] = experiment_path
-                model_params['max_epochs'] = epoch
-                model_params['latent_dim'] = lf
-                model_params['beta'] = beta
-                model_params['synthetic_data'] = None
-                model_params['sigmoid_annealing_threshold'] = int(epoch/6)
-                model_params['expanded_user_item'] = expanded_user_item
-                model_params['mixup'] = mixup
-                model_params['generative_factors'] = no_generative_factors
+                model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 6), expanded_user_item, mixup,
+                        no_generative_factors, epoch)
 
                 args.max_epochs = epoch
 
@@ -1176,9 +1131,6 @@ if __name__ == '__main__':
 
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
 
-
-
-
                 # utils.plot_results(test_model,
                 #                    test_model.experiment_path_test,
                 #                    test_model.experiment_path_train,
@@ -1199,10 +1151,7 @@ if __name__ == '__main__':
                 dct_images = {img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for img_path in ls_path_images}
                 wandb.log(dct_images)
 
-
-
                 # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
-
 
                 #TODO Bring back in
 
