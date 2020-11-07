@@ -23,7 +23,7 @@ def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_thre
                         no_generative_factors, max_epochs):
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.15,  # TODO Change test size to 0.33
+                    "test_size": 0.33,  # TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta": 1,
                     "sigmoid_annealing_threshold": 0,

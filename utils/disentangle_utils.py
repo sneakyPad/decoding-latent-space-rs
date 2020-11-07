@@ -11,7 +11,7 @@ from lib.zero_shot import get_gap_ids
 from lib.utils import mkdir_p
 import math
 import pandas as pd
-
+from utils import plot_utils
 # split inputs and targets into sets: [train, dev, test, (zeroshot)]
 def split_data(data, n_train, n_dev, n_test, zshot):
     train = data[:n_train]
@@ -33,7 +33,7 @@ def normalize_datasets(datasets, zshot):
     return datasets
 
 
-def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_time=False, save_plot=False, n_models=1, n_z=0, m_codes=None, gts = None, zshot=False, model_names = None, n_c=None, figs_dir = None):
+def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_time=False, save_plot=False, n_models=1, n_z=0, m_codes=None, gts = None, zshot=False, model_names = None, n_c=None, experiment_path = None, exp_params=None):#fig_dir
     # lists to store scores
     m_disent_scores = [] * n_models
     m_complete_scores = [] * n_models
@@ -64,16 +64,19 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
 
             # fit model
             model = regressor(**params[i][j])
-            model.fit(X_train, y_train)
+            model.fit(X_train, y_train.tolist())
 
             # predict
             y_train_pred = model.predict(X_train)
+            # print(model.feature_importance)
             y_dev_pred = model.predict(X_dev)
             y_test_pred = model.predict(X_test) if test_time else None
             y_zshot_pred = model.predict(X_zshot) if zshot else None
 
             # calculate errors
+
             train_errs[i, j] = err_fn(y_train_pred, y_train)
+            print(train_errs)
             dev_errs[i, j] = err_fn(y_dev_pred, y_dev)
             test_errs[i, j] = err_fn(y_test_pred, y_test) if test_time else None
             zshot_errs[i, j] = err_fn(y_zshot_pred, y_zshot) if zshot else None
@@ -106,16 +109,11 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
 
         # visualise
         hinton(R, '$\mathbf{z}$', '$\mathbf{c}$', ax=axs, fontsize=18)
-        axs.set_title('{0}'.format(model_names[i]), fontsize=20)
+        # axs.set_title('{0}'.format(model_names[i]), fontsize=20)
 
-    plt.rc('text', usetex=True)
-    if save_plot:
-        fig.tight_layout()
-        plt.savefig(os.path.join(figs_dir, "hint_{0}_{1}.pdf".format(regressor.__name__, n_c)))
-    else:
-        plt.show()
-
-    print_table_pretty('Disentanglement', m_disent_scores, 'c', model_names)
+    title = model_names[0]
+    model_names =['VAE']
+    str_dis = print_table_pretty('Disentanglement', m_disent_scores, 'c', model_names)
     print_table_pretty('Completeness', m_complete_scores, 'z', model_names)
 
     print("Informativeness:")
@@ -128,23 +126,37 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
         if zshot:
             print_table_pretty('Zeroshot Error', zshot_errs, 'z', model_names)
 
-def run_disentanglement_eval(test_model):
 
-    print('fo')
+    plt.rc('text', usetex=True)
+    plt.title(title, fontsize=17, y=1.08)
+    if save_plot:
+        fig.tight_layout()
+        plot_utils.save_figure(fig, experiment_path + 'images/', "hint_{0}".format(regressor.__name__),
+                               dct_params=exp_params)
+        plot_utils.save_figure(fig, '../models/results/disentanglement-imgs/',
+                               "hint_{0}".format(regressor.__name__), dct_params=exp_params)
+
+    plt.show()
+    plt.clf()
+def run_disentanglement_eval(test_model, experiment_path, dct_params):
+
     np_z_test = test_model.np_z_test
     test_y = test_model.test_y
-    # setup
+
     seed = 123
     rng = np.random.RandomState(seed)
     data_dir = '../data/lasso'  # '../wgan/data/'
     codes_dir = os.path.join(data_dir, 'codes/')
-    figs_dir = 'figs/'
-    mkdir_p(figs_dir)
-
     n_c = 10
     zshot = False
 
-    model_names = ['VAE']
+    description ="VAE \n"
+    for key, val in dct_params.items():
+        if(isinstance(val,float)):
+            val = str(val)[:4]
+        description = description + "{}:{} ".format(key,val)
+    description = description + "\n exp:{}".format(str(experiment_path).split(sep='/')[-2].replace('-', '-').replace('_','-'))
+    model_names = [description]
     exp_names = [m.lower() for m in model_names]
     n_models = len(model_names)
     train_fract, dev_fract, test_fract = 0.8, 0.1, 0.1
@@ -197,7 +209,7 @@ def run_disentanglement_eval(test_model):
     importances_attr = 'coef_'  # weights
     err_fn = nrmse  # norm root mean sq. error
     test_time = True
-    save_plot = False
+    save_plot = True
 
     fit_visualise_quantify(Lasso,
                            params,
@@ -206,4 +218,30 @@ def run_disentanglement_eval(test_model):
                            test_time,
                            save_plot,
                            n_models,
-                           n_z, m_codes,gts, zshot, model_names, n_c, figs_dir)
+                           n_z, m_codes,gts, zshot, ["Lasso - " +model_names[0]], n_c, experiment_path, dct_params)#figs_dir
+
+    ##Train Random Forest
+    from sklearn.ensemble.forest import RandomForestRegressor
+
+    n_estimators = 10
+    all_best_depths = [[12, 10, 10, 3, 30]]#Original: [12, 10, 3, 3, 3]
+
+    # populate params dict with best_depths per model per target (z gt)
+    params = [[]] * n_models
+    for i, z_max_depths in enumerate(all_best_depths):
+        for z_max_depth in z_max_depths:
+            params[i].append({"n_estimators": n_estimators, "max_depth": z_max_depth, "random_state": rng})
+
+    importances_attr = 'feature_importances_'
+    err_fn = nrmse  # norm root mean sq. error
+    test_time = True
+    save_plot = True
+    fit_visualise_quantify(RandomForestRegressor,
+                           params,
+                           err_fn,
+                           importances_attr,
+                           test_time,
+                           save_plot,
+                           n_models,
+                           n_z, m_codes, gts, zshot, ["Random Forest - " + model_names[0]], n_c, experiment_path, dct_params
+                           )

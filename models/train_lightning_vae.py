@@ -5,6 +5,7 @@ from __future__ import print_function
 import wandb
 # from hessian_penalty_pytorch import hessian_penalty
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks.progress import ProgressBar
 import torch, torch.nn as nn, torchvision, torch.optim as optim
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
@@ -31,7 +32,7 @@ import wandb
 from scipy.stats import entropy
 import time
 import os
-from utils import dis_utils, training_utils, plot_utils, data_utils, utils, metric_utils
+from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -55,8 +56,6 @@ from utils import dis_utils, training_utils, plot_utils, data_utils, utils, metr
 
 seed = 42
 torch.manual_seed(seed)
-ig_m_cnt = 0
-ig_m_hat_cnt =0
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
 ##If set to False, the actual rating is taken
 ##Shape: (n_user, n_items)
@@ -97,6 +96,7 @@ class VAE(pl.LightningModule):
         self.simplified_rating = self.hparams["simplified_rating"]
         self.max_epochs = self.hparams["max_epochs"]
         self.dct_index2itemId = None
+        self.test_y_bin = None
 
         if(self.np_synthetic_data is None):
             self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
@@ -107,7 +107,7 @@ class VAE(pl.LightningModule):
         else:
             self.train_dataset, self.test_dataset = train_test_split(self.np_synthetic_data, test_size=self.test_size, random_state=42)
             self.train_y, self.test_y = train_test_split(self.ls_syn_y, test_size=self.test_size, random_state=42)
-
+            self.test_y_bin = np.asarray(pd.get_dummies(pd.DataFrame(data=self.test_y)))
             self.unique_movies = self.np_synthetic_data.shape[1]
             self.df_movies = pd.read_csv('../data/generated/syn.csv')
             self.dct_attribute_distribution = utils.load_json_as_dict(
@@ -158,8 +158,7 @@ class VAE(pl.LightningModule):
         self.encoder.apply(self.weight_init)
         self.decoder.apply(self.weight_init)
 
-        # self.ig_m_hat_cnt = 0
-        # self.ig_m_cnt = 0
+
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
         #     print('attributes loaded')
@@ -218,12 +217,12 @@ class VAE(pl.LightningModule):
 
         return self.decode(z), mu, logvar, p, q
 
-    def _run_step(self, x):
-        x = self.encoder(x)
-        mu = self.fc_mu(x)
-        log_var = self.fc_var(x)
-        p, q, z = self.sample(mu, log_var)
-        return z, self.decoder(z), p, q
+    # def _run_step(self, x):
+    #     x = self.encoder(x)
+    #     mu = self.fc_mu(x)
+    #     log_var = self.fc_var(x)
+    #     p, q, z = self.sample(mu, log_var)
+    #     return z, self.decoder(z), p, q
 
     def load_dataset(self):
         if (self.small_dataset):
@@ -384,7 +383,7 @@ class VAE(pl.LightningModule):
         # self.eval()
         ts_batch_user_features = batch.view(-1, self.input_dimension)
         if (self.mixup):
-            ts_batch_user_features, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, ts_batch_user_features,
+            ts_batch_user_features, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, self.test_y_bin,
                                                                     alpha=1.0, use_cuda=False)
 
         recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)
@@ -470,17 +469,17 @@ class VAE(pl.LightningModule):
         return np.sum(np.where(p != 0, p * np.log(p / q), 0))
 
 
-    def step(self, batch, batch_idx):
-        x, y = batch
-        z, x_hat, p, q = self._run_step(x)
-
-        recon_loss = F.mse_loss(x_hat, x, reduction='mean')
-
-        log_qz = q.log_prob(z)
-        log_pz = p.log_prob(z)
-
-        kl = log_qz - log_pz
-        kl = kl.mean()
+    # def step(self, batch, batch_idx):
+    #     x, y = batch
+    #     z, x_hat, p, q = self._run_step(x)
+    #
+    #     recon_loss = F.mse_loss(x_hat, x, reduction='mean')
+    #
+    #     log_qz = q.log_prob(z)
+    #     log_pz = p.log_prob(z)
+    #
+    #     kl = log_qz - log_pz
+    #     kl = kl.mean()
 
     def new_kld_func(self, p, q):
         log_qz = q.log_prob(self.z)
@@ -610,7 +609,7 @@ def calculate_mean_of_ls_dict(ls_dict: list):
             dct_sum[key] += val
     np_mean_vals = np.array(list(dct_sum.values())) / len(ls_dict)
     dct_mean = list(zip(dct_sum.keys(), np_mean_vals))
-    print(dct_mean)
+    # print(dct_mean)
     return dct_mean
 
 def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
@@ -648,8 +647,21 @@ def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
     return df_w_metadata
 
 
-def alter_z(ts_z, latent_factor_position, model):
-    ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position] #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
+def alter_z(ts_z, latent_factor_position, model, strategy):
+    if(strategy == 'max'):
+        ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position] #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
+    elif(strategy == 'min'):
+        raise NotImplementedError("Min Strategy needs to be implemented")
+    elif(strategy == 'min_max'):
+        z_values = ts_z[:, latent_factor_position]
+        z_max_range = np.max(z_values) #TODO Evtl. take z_max_train here
+        z_min_range = np.min(z_values)
+
+        if(np.abs(z_max_range) > np.abs(z_min_range)):
+            ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]
+        else:
+            ts_z[:, latent_factor_position] = model.z_min_train[latent_factor_position]
+
     return ts_z
 
 #MCE is calculated for each category
@@ -662,8 +674,8 @@ def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
     # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
 
     for latent_factor_position in range(model.no_latent_factors):
-        print("Calculate MCEs for position: {} in vector z".format(latent_factor_position))
-        ts_altered_z = alter_z(z, latent_factor_position, model)
+        # print("Calculate MCEs for position: {} in vector z".format(latent_factor_position))
+        ts_altered_z = alter_z(z, latent_factor_position, model, strategy='min_max')#'max'
 
         ls_y_hat_latent_changed, mu, logvar, p, q = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
 
@@ -694,7 +706,8 @@ def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
         #Go through the list of list of the predicted batch
         # for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
         ls_dct_mce = []
-        for user_idx in tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
+
+        for user_idx in range(len(ls_idx_yhat)): #tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
             y_hat = ls_y_hat[user_idx]
             y_hat_latent = ls_y_hat_latent_changed[user_idx]
 
@@ -715,8 +728,8 @@ def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
 
             # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             # single_mce = mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            # single_mce = mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            # ls_dct_mce.append(single_mce)
+            single_mce = metric_utils.mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            ls_dct_mce.append(single_mce)
 
             # print(single_mce)
         dct_mce_mean[latent_factor_position] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
@@ -732,18 +745,20 @@ if __name__ == '__main__':
     torch.manual_seed(100)
     args = training_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
-
+    settings.init()
     #%%
-    train = False
+    train = True
     synthetic_data = True
     expanded_user_item = False
-    mixup = True
+    mixup = False
     hessian_penalty = False
     base_path = 'results/models/vae/'
 
-    ls_epochs = [700]
-    ls_latent_factors = [5]
-    ls_betas = [3] #disentangle_factors .0003
+    ls_epochs = [5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500] #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
+    #Note: Mit steigender Epoche wird das disentanglement verstärkt
+    #
+    ls_latent_factors = [5, 10]
+    ls_betas = [1, 2] #disentangle_factors .0003
     no_generative_factors = 3
 
     for epoch in ls_epochs:
@@ -780,15 +795,16 @@ if __name__ == '__main__':
                                                         gpus=0,
                                                         weights_summary='full',
                                                         checkpoint_callback = False,
-                                                        callbacks = [EarlyStopping(monitor='train_loss')]
+                                                        callbacks = [ProgressBar(), EarlyStopping(monitor='train_loss')]
                 )
+
 
 
                 if(train):
                     print('<---------------------------------- VAE Training ---------------------------------->')
                     print("Running with the following configuration: \n{}".format(args))
                     if (synthetic_data):
-                        model_params['synthetic_data'], model_params['syn_y'] = utils.create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item)
+                        model_params['synthetic_data'], model_params['syn_y'] = data_utils.create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item)
                         generate_distribution_df()
 
                     model = VAE(model_params)
@@ -798,10 +814,9 @@ if __name__ == '__main__':
 
                     print('------ Start Training ------')
                     trainer.fit(model)
-
                     kld_matrix = model.KLD
-                    # print('% altering has provided information gain:{}'.format(
-                    #     int(ig_m_hat_cnt) / (int(ig_m_cnt) + int(ig_m_hat_cnt))))
+                    print('% altering has provided information gain:{}'.format(
+                        int(settings.ig_m_hat_cnt) / (int(settings.ig_m_cnt) + int(settings.ig_m_hat_cnt))))
 
                     # model.dis_KLD
 
@@ -819,21 +834,19 @@ if __name__ == '__main__':
                 # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
                 print('------ Start Test ------')
                 start = time.time()
-                ig_m_hat_cnt = 0
-                ig_m_cnt = 0
                 trainer.test(test_model) #The test loop will not be used until you call.
                 print('Test time in seconds: {}'.format(time.time() - start))
-                # print('% altering has provided information gain:{}'.format( int(ig_m_hat_cnt)/(int(ig_m_cnt)+int(ig_m_hat_cnt) )))
+                print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
                 # print(results)
 
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
 
-                # result_utils.plot_results(test_model,
-                #                    test_model.experiment_path_test,
-                #                    test_model.experiment_path_train,
-                #                    dct_param )
+                plot_utils.plot_results(test_model,
+                                   test_model.experiment_path_test,
+                                   test_model.experiment_path_train,
+                                   dct_param )
 
-                dis_utils.run_disentanglement_eval(test_model)
+                disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
 
                 artifact = wandb.Artifact('Plots', type='result')
                 artifact.add_dir(experiment_path)#, name='images'

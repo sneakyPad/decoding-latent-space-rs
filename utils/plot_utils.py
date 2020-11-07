@@ -32,8 +32,11 @@ def print_nn_summary(model, size):
     summary(model, example_input)
 
 def save_figure(fig, experiment_path, name, dct_params):
-    image_name = name + "_" + "_".join(str(val)+"_"+key for key, val in dct_params.items())
-    fig.savefig(experiment_path + image_name + ".png")
+    if(dct_params==None):
+        fig.savefig(experiment_path + name + ".png")
+    else:
+        image_name = name + "_" + "_".join(str(val)[:4]+"_"+key for key, val in dct_params.items())
+        fig.savefig(experiment_path + image_name + ".png")
 
 
 def plot_mce(model, neptune_logger, max_epochs):
@@ -319,7 +322,7 @@ def polar_plot(model, title, experiment_path, dct_params):
     save_figure(fig, experiment_path, 'polar', dct_params)
     plt.show()
 
-def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params):
+def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params, sum = False):
     df_z_matrix = pd.DataFrame(data=model.np_z_test,
                                  columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
     df_z_matrix['y'] = model.test_y
@@ -331,51 +334,50 @@ def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params):
     plt.tight_layout()
     fig = ax.get_figure()
     plt.ylabel('z value')
-    # fig.suptitle(title)
     save_figure(fig, experiment_path, 'gen-factors2latent-factors-mean', dct_params)
     plt.show()
 
     #Do the same vor sum
-    df_two = df_z_matrix.groupby('y').agg("sum")#.reset_index()
-    ax = df_two.plot.bar(stacked=False,rot=0)
-    fig = ax.get_figure()
-    # fig.suptitle(title)
-    plt.title('gen-factors2latent-factors-sum', fontsize=17, y=1.08)
-    plt.ylabel('z value')
-    save_figure(fig, experiment_path, 'gen-factors2latent-factors-sum', dct_params)
-    plt.show()
+    if(sum):
+        df_two = df_z_matrix.groupby('y').agg("sum")#.reset_index()
+        ax = df_two.plot.bar(stacked=False,rot=0)
+        fig = ax.get_figure()
+        plt.title('gen-factors2latent-factors-sum', fontsize=17, y=1.08)
+        plt.ylabel('z value')
+        save_figure(fig, experiment_path, 'gen-factors2latent-factors-sum', dct_params)
+        plt.show()
 
 
 
 def plot_results(model, experiment_path_test, experiment_path_train, dct_params):
-
+    plt.clf()
+    plt.rcParams["text.usetex"] = False
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
     df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
     df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
-    # df_mce_wo_kld_results2 = pd.read_json(experiment_path+'/mce_results_wo_kld2.json')#../data/generated/mce_results.json'
     exp_path_img = experiment_path_test + "images/"
 
     # Apply PCA on Data an plot it afterwards
     np_z_pca = apply_pca(model.np_z_test)
     plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
 
-    plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params)
+    plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
     polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
 
     # Plot the probability distribution of latent layer
     df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ")
     plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
-    plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    # plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    # plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
-    # plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
-    # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
+    plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
     plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
-    plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
-    plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
+    # plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+    # plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
     plot_kld_of_latent_factor(model, 'Mean of KLD by Latent Factor', exp_path_img, dct_params)
 
     # plot_3D_lf_z(model, '3D of Z-Values for LF', exp_path_img, dct_params)

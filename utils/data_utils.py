@@ -35,7 +35,7 @@ def create_synthetic_data_nd(no_generative_factors, experiment_path):
     dct_data ={'genres': genres, 'year': year, 'stars':stars, 'rating':rating}
     dct_base_data = {key:dct_data[key] for key in ls_attributes}
 
-    n_users = 1800
+    n_users = 2400*4
     n_movies = len(ls_attributes * no_samples)
     if(no_generative_factors==2):
         np_user_item = np.zeros((n_users,n_movies,len(year), len(rating)),dtype="float32")
@@ -204,7 +204,7 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path):
     dct_data = {'genres': genres, 'year': year, 'stars': stars, 'rating': rating}
     dct_base_data = {key: dct_data[key] for key in ls_attributes}
 
-    n_users = 1800
+    n_users = 600*2
     n_movies = len(ls_attributes * no_samples)
     np_user_item = np.zeros((n_users,n_movies),dtype="float32")
 

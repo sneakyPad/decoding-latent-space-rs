@@ -33,8 +33,9 @@ import wandb
 from scipy.stats import entropy
 import time
 import os
-from utils import dis_utils, training_utils, utils
+from utils import disentangle_utils, training_utils, utils
 from sklearn.metrics import mean_squared_error
+from utils import settings
 
 
 def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
@@ -117,8 +118,6 @@ def calculate_normalized_entropy(population):
     return H_n
 
 def information_gain(m, m_hat, dct_population):
-    global ig_m_cnt
-    global ig_m_hat_cnt
     ls_population_rf = [val for key, val in dct_population.items()]
     population_entropy = calculate_normalized_entropy(ls_population_rf)
 
@@ -134,10 +133,10 @@ def information_gain(m, m_hat, dct_population):
     ig_m_hat = population_entropy - m_hat_entropy
 
     if(ig_m_hat > ig_m): #This means it was more unlikely so we gain information. Goal is to get to 1
-        ig_m_hat_cnt +=1
+        settings.ig_m_hat_cnt +=1
         # return ig_m_hat
-
-    ig_m_cnt += 1
+    else:
+        settings.ig_m_cnt += 1
     return ig_m_hat - ig_m
 
 def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
