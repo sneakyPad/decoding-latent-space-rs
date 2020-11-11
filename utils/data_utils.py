@@ -180,19 +180,20 @@ def create_synthetic_3d_data(no_generative_factors, experiment_path):
     print("Shape of User-Item Matrix:{}".format(np_user_item.shape))
     return np_user_item, ls_y
 
-def create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item):
+def create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item, continous_data, normalvariate):
     if(expanded_user_item):
         # return create_synthetic_3d_data()
         return create_synthetic_data_nd(no_generative_factors, experiment_path)
 
-    return create_synthetic_data_simple(no_generative_factors, experiment_path)
+    return create_synthetic_data_simple(no_generative_factors, experiment_path, continous_data, normalvariate)
 
-def create_synthetic_data_simple(no_generative_factors, experiment_path):
+def create_synthetic_data_simple(no_generative_factors, experiment_path, continous_data, normalvariate):
+
     no_samples = 20
-    genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama', 'Romance','Comedy', 'War','Adventure', 'Family']
+    genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama']#, 'Romance','Comedy', 'War','Adventure', 'Family'
     year = ['1980', '1990', '2000', '2010', '2020']
-    stars = ['Tom Hanks', 'Tim Allen', 'Don Rickles','Robin Williams', 'Kirsten Dunst', 'Bonnie Hunt']
-    rating = ['7', '8', '9', '10']
+    stars = ['Tom Hanks', 'Tim Allen', 'Don Rickles','Robin Williams', 'Kirsten Dunst']#, 'Bonnie Hunt'
+    rating = ['6','7', '8', '9', '10']
 
     # dct_base_data ={'genres': genres, 'year': year, 'stars': stars, 'rating': rating}#
 
@@ -208,20 +209,20 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path):
     n_movies = len(ls_attributes * no_samples)
     np_user_item = np.zeros((n_users,n_movies),dtype="float32")
 
-
+    # Create movies by sampling
     for attribute in ls_attributes:
         for i in range(no_samples):
             movie = {}
-            movie[attribute] = [dct_base_data[attribute][0]]
+            movie[attribute] = dct_base_data[attribute][0]
 
             for other_attribute in ls_attributes:
-                if(other_attribute == attribute):
+                if (other_attribute == attribute):
                     continue
-                if(other_attribute == 'rating' or other_attribute == 'year'):
-                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=1)
+                if (other_attribute == 'rating' or other_attribute == 'year'):
+                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=1)[0]
                 else:
-                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=2)
-
+                    movie[other_attribute] = random.choices(dct_base_data[other_attribute], k=1)[
+                        0]  # k= number of samples
 
             ls_movies.append(movie)
 
@@ -241,12 +242,21 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path):
         #
 
         for idx in range(no_users_with_same_preference):
-            min_sample = no_samples*0.5
-            max_sample = no_samples*0.7
+            min_sample = no_samples*0.4
+            max_sample = no_samples*0.8
             no_of_seen_items = int(random.uniform(min_sample,max_sample))#30, 49
-            seen = random.sample(list(sr_ids.values), k=no_of_seen_items)
+            if(normalvariate):
+                mu = (end+1)-(no_samples/2)
+                sigma = 2
+                seen = [int(random.normalvariate(mu, sigma)) for k in range(0,no_of_seen_items)]
+                # seen = random.normalvariate(mu, sigma)
+            else:
+                seen = random.sample(list(sr_ids.values), k=no_of_seen_items)
             user_idx = i * no_users_with_same_preference + idx
-            np_user_item[user_idx,seen] = 1
+            if(continous_data):
+                np_user_item[user_idx,seen] = 1* random.uniform(0,0.33)*i
+            else:
+                np_user_item[user_idx,seen] = 1
             ls_y.append(attribute)
         # df_synthentic_data.loc[start:end, 'y'] = ls_attributes[i]
     # print(ls_movies)

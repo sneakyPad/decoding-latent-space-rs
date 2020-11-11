@@ -20,10 +20,10 @@ def create_training_args():
 
 
 def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_threshold, expanded_user_item, mixup,
-                        no_generative_factors, max_epochs):
+                        no_generative_factors, max_epochs, is_hessian_penalty_activated, used_data):
     model_params = {"simplified_rating": True,
                     "small_dataset": True,
-                    "test_size": 0.33,  # TODO Change test size to 0.33
+                    "test_size": 0.2,  # TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta": 1,
                     "sigmoid_annealing_threshold": 0,
@@ -43,4 +43,7 @@ def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_thre
     model_params['expanded_user_item'] = expanded_user_item
     model_params['mixup'] = mixup
     model_params['generative_factors'] = no_generative_factors
+    model_params['is_hessian_penalty_activated'] = is_hessian_penalty_activated
+    model_params['used_data'] = used_data
+
     return model_params

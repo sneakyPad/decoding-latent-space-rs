@@ -18,7 +18,7 @@ from time import sleep
 import math
 import json
 import janitor
-import utils.utils as utils
+import utils.plot_utils as utils
 
 # manager = multiprocessing.Manager()
 # shared_list = manager.list()

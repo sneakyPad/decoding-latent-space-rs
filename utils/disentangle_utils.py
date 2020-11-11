@@ -173,13 +173,13 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
 
     # load targets (ground truths)
     # gts = np.load(os.path.join(data_dir, 'teapots.npz'))['gts']
-    gts = test_y
-    # n_samples = gts.shape[0]
-    n_samples = len(test_y)
-    # n_z = gts.shape[1]
-    n_z = len(np.unique(test_y))
-    n_train, n_dev, n_test = int(train_fract * n_samples), int(dev_fract * n_samples), int(test_fract * n_samples)
 
+    gts = test_y
+    n_samples = len(test_y)
+    n_train, n_dev, n_test = int(train_fract * n_samples), int(dev_fract * n_samples), int(test_fract * n_samples)
+    if(test_model.used_data == 'dsprites'):
+        n_z = test_y.shape[1]
+        gts = pd.DataFrame(data=gts)
     # create 'gap' in data if zeroshot (unseen factor combinations)
     if zshot:
         try:
@@ -191,7 +191,10 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
         def create_gap(data):
             return np.delete(data, gap_ids, 0)
 
-    gts = pd.get_dummies(pd.DataFrame(data=gts))
+    # gts = pd.get_dummies(pd.DataFrame(data=gts))
+    if (test_model.used_data == 'morpho'):
+        gts = pd.get_dummies(pd.Series(gts))
+
     gts = split_data(gts, n_train, n_dev, n_test, zshot)
     for i in range(n_models):
         m_codes[i] = split_data(m_codes[i], n_train, n_dev, n_test, zshot)
@@ -224,7 +227,7 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
     from sklearn.ensemble.forest import RandomForestRegressor
 
     n_estimators = 10
-    all_best_depths = [[12, 10, 10, 3, 30]]#Original: [12, 10, 3, 3, 3]
+    all_best_depths = [[12, 10, 3, 3, 3, 12, 10, 3 , 3, 3]]#Original: [12, 10, 3, 3, 3]
 
     # populate params dict with best_depths per model per target (z gt)
     params = [[]] * n_models

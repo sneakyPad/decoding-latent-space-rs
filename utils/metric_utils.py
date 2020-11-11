@@ -120,6 +120,8 @@ def calculate_normalized_entropy(population):
 def information_gain(m, m_hat, dct_population):
     ls_population_rf = [val for key, val in dct_population.items()]
     population_entropy = calculate_normalized_entropy(ls_population_rf)
+    # print('RF original:{} RF new:{}'.format(m,m_hat))
+    # print('Population entropy: {}'.format(population_entropy))
 
     if(type(m) is not list):
         m = [m]
@@ -128,15 +130,21 @@ def information_gain(m, m_hat, dct_population):
 
     m_entropy = calculate_normalized_entropy(m)
     m_hat_entropy = calculate_normalized_entropy(m_hat)
+    # print('Entropy original:{} new:{}'.format(m_entropy,m_hat_entropy))
+
 
     ig_m = population_entropy - m_entropy
     ig_m_hat = population_entropy - m_hat_entropy
+    # print('IG original:{} new:{} '.format(ig_m, ig_m_hat))
+
+
 
     if(ig_m_hat > ig_m): #This means it was more unlikely so we gain information. Goal is to get to 1
         settings.ig_m_hat_cnt +=1
         # return ig_m_hat
     else:
         settings.ig_m_cnt += 1
+    # print('IG Difference:{}\n{}\n'.format(ig_m_hat - ig_m, '-'*80))
     return ig_m_hat - ig_m
 
 def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
@@ -145,9 +153,11 @@ def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
     dct_mce = defaultdict(float)
     for idx_vector in range(y_hat.shape[0]):
         for attribute in y_hat:
+            # print('Attribute:{}'.format(attribute))
             if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline','id']):
                 ls_y_attribute_val = utils.my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
                 ls_y_latent_attribute_val = utils.my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
+                # print('Attribute Values to compapre:{} - {}'.format(ls_y_attribute_val, ls_y_latent_attribute_val))
                 mean = 0
                 cnt_same = 0
                 mce=0

@@ -59,13 +59,15 @@ def plot_mce(model, neptune_logger, max_epochs):
     plt.tight_layout()
     fig.savefig("./results/images/mce_epochs_" + str(max_epochs) + ".png")
 
-def ls_columns_to_dfrows(ls_val, column_base_name):
+def ls_columns_to_dfrows(ls_val, column_base_name, model):
     print(ls_val.shape)
+
     ls_columns = [column_base_name + str(i) for i in range(1, ls_val.shape[1] + 1)]
     # print(ls_columns)
     df_z = pd.DataFrame(data=ls_val, columns=ls_columns)
+    df_z['y'] = model.test_y
     # print(df_z.columns)
-    df_piv = df_z.melt(var_name='cols', value_name='values')  # Transforms it to: _| cols | vals|
+    df_piv = df_z.melt(id_vars=['y'],var_name='cols', value_name='values') # Transforms it to: _| cols | vals|
     return df_piv
 
 def plot_catplot(df, title, experiment_path, dct_params):
@@ -325,16 +327,58 @@ def polar_plot(model, title, experiment_path, dct_params):
 def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params, sum = False):
     df_z_matrix = pd.DataFrame(data=model.np_z_test,
                                  columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
-    df_z_matrix['y'] = model.test_y
+
+    if(model.used_data =='dsprites'):
+        ls_gen_facs_partially = list(model.dsprites_lat_names)
+        ls_gen_facs = ['y_'+ name for name in ls_gen_facs_partially]
+        ls_gen_facs.insert('y_whitey',0)
+        for idx, name in enumerate(ls_gen_facs):
+            df_z_matrix[name] = model.test_y[:,idx]
+
+        print('fo')
+        # import plotly.graph_objects as go
+        #
+        #
+        # fig = go.Figure()
+        # fig.add_trace(go.Bar(
+        #     x=ls_gen_facs,
+        #     y=[20, 14, 25, 16, 18, 22, 19, 15, 12, 16, 14, 17],
+        #     name='Primary Product',
+        #     marker_color='indianred'
+        # ))
+        # fig.add_trace(go.Bar(
+        #     x=months,
+        #     y=[19, 14, 22, 14, 16, 19, 15, 14, 10, 12, 12, 16],
+        #     name='Secondary Product',
+        #     marker_color='lightsalmon'
+        # ))
+
+        # Here we modify the tickangle of the xaxis, resulting in rotated labels.
+        # fig.update_layout(barmode='group', xaxis_tickangle=-45)
+        # plt.show()
+
+
     df = df_z_matrix.groupby('y').agg("mean")#.reset_index()
 
-    #Create for mean
+
+
+    #Create plot for generative factors on the x-axis
     ax = df.plot.bar(stacked=False,rot=0)
     plt.title('gen-factors2latent-factors-mean', fontsize=17, y=1.08)
     plt.tight_layout()
     fig = ax.get_figure()
     plt.ylabel('z value')
     save_figure(fig, experiment_path, 'gen-factors2latent-factors-mean', dct_params)
+    plt.show()
+
+    # Create plot for latent factors on the x-axis
+    df=df.T
+    ax = df.plot.bar(stacked=False, rot=0)
+    plt.title('latent-factors2gen-factors-mean', fontsize=17, y=1.08)
+    plt.tight_layout()
+    fig = ax.get_figure()
+    plt.ylabel('z value')
+    save_figure(fig, experiment_path, 'latent-factors2gen-factors-mean', dct_params)
     plt.show()
 
     #Do the same vor sum
@@ -347,6 +391,72 @@ def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params, s
         save_figure(fig, experiment_path, 'gen-factors2latent-factors-sum', dct_params)
         plt.show()
 
+def plot_parallel_lf(model):
+
+        df_z_matrix = pd.DataFrame(data=model.np_z_test,
+                                   columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
+        df_z_matrix['y'] = model.test_y
+        ax = pd.plotting.parallel_coordinates(
+            df_z_matrix, 'y', colormap='viridis')
+        plt.show()
+
+def swarm_plot_melted(df_melted):
+    sns.catplot(x="cols", y="values", hue="y", kind="swarm", data=df_melted)
+    plt.show()
+
+
+
+def plot_movies_combined_with_z(model, experiment_path, dct_params):
+    lf_cols = [i for i in range(model.np_z_test.shape[1])]
+    df = model.df_movies_z_combined
+    df_all_one = df.groupby(['year', 'rating', 'genres']).agg('mean')
+    df_all_two = df.groupby([ 'rating', 'genres', 'year']).agg('mean')
+    df_all_three = df.groupby([ 'genres','year', 'rating',]).agg('mean')
+    df_all_one['x'] = df_all_one.index.values
+    df_all_two['x'] = df_all_two.index.values
+    df_all_three['x'] = df_all_three.index.values
+    df_year = df.groupby('year').agg('mean').reset_index()
+    df_rating = df.groupby('rating').agg('mean').reset_index()
+    df_genre = df.groupby('genres').agg('mean').reset_index()
+
+
+    df_all_one= df_all_one.melt(id_vars='x',value_vars=lf_cols, var_name='lf', value_name='values')   # Transforms it to: _| cols | vals|
+    df_all_two= df_all_two.melt(id_vars='x',value_vars=lf_cols, var_name='lf', value_name='values')   # Transforms it to: _| cols | vals|
+    df_all_three= df_all_three.melt(id_vars='x',value_vars=lf_cols, var_name='lf', value_name='values')   # Transforms it to: _| cols | vals|
+    df_year= df_year.melt(id_vars='year',value_vars=lf_cols, var_name='lf', value_name='values')   # Transforms it to: _| cols | vals|
+    df_rating = df_rating.melt(id_vars='rating',value_vars=lf_cols, var_name='lf', value_name='values')   # Transforms it to: _| cols | vals|
+    df_genre = df_genre.melt(id_vars='genres',value_vars=lf_cols, var_name='lf', value_name='values')   # Transforms it to: _| cols | vals|
+
+    sns.set(style="ticks", rc={"lines.linewidth": 0.9})
+    def plot_groups(df, title):
+        fig =sns.catplot(x="x", y="values", hue="lf", kind="point", data=df, aspect=3, legend_out=True, plot_kws=dict( linestyles=["-", "--"]))
+        plt.xticks(rotation=80)
+        plt.show()
+        save_figure(fig, experiment_path, title, dct_params)
+
+    plot_groups(df_all_one, 'groupby-movie-all-z-one')
+    plot_groups(df_all_two, 'groupby-movie-all-z-two')
+    plot_groups(df_all_three, 'groupby-movie-all-z-three')
+
+    fig = sns.catplot(x="year", y="values", hue="lf", kind="point", data=df_year, aspect=1.5)
+    plt.show()
+    save_figure(fig, experiment_path, 'groupby-movie-year-z', dct_params)
+
+    fig = sns.catplot(x="rating", y="values", hue="lf", kind="point", data=df_rating, aspect=1.5)
+    plt.show()
+    save_figure(fig, experiment_path, 'groupby-movie-rating-z', dct_params)
+
+    fig = sns.catplot(x="genres", y="values", hue="lf", kind="point", data=df_genre, aspect=1.5)
+    plt.show()
+    save_figure(fig, experiment_path, 'groupby-movie-genre-z', dct_params)
+
+def plot_covariance_heatmap(model, exp_img_path, dct_params):
+    # logvar_mean_vec_train  = model.np_logvar_train.mean(axis=0)
+    logvar_mean_vec_test =  model.np_logvar_test.mean(axis=0)
+
+    # create_heatmap(logvar_mean_vec_train, 'logvar train', 'dimension', 'dimension', exp_img_path, dct_params)
+    create_heatmap(logvar_mean_vec_test, 'logvar test', 'dimension', 'dimension', exp_img_path, dct_params)
+
 
 
 def plot_results(model, experiment_path_test, experiment_path_train, dct_params):
@@ -354,28 +464,34 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
     plt.rcParams["text.usetex"] = False
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
-    df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
-    df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
+    # df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
+    # df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
     exp_path_img = experiment_path_test + "images/"
 
     # Apply PCA on Data an plot it afterwards
-    np_z_pca = apply_pca(model.np_z_test)
-    plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
+    # np_z_pca = apply_pca(model.np_z_test)
+    # plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
 
-    plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
-    polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+    # plot_covariance_heatmap(model, exp_path_img, dct_params)
+    # plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
+    # polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
 
+    # df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ", model=model)
     # Plot the probability distribution of latent layer
-    df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ")
-    plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
+
+    # plot_movies_combined_with_z(model, exp_path_img, dct_params)
+    # plot_parallel_lf(model)
+    # swarm_plot_melted(df_melted)
+
+    # plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
     # plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     # plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
-    plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    # plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    # plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
-    plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
-    plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
+    # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
+    # plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
     # plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
     # plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
     plot_kld_of_latent_factor(model, 'Mean of KLD by Latent Factor', exp_path_img, dct_params)

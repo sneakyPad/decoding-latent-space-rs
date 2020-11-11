@@ -19,6 +19,8 @@ import numpy as np
 
 
 def my_eval(expression):
+    return expression
+    #TODO fix this
     try:
         return ast.literal_eval(str(expression))
     except SyntaxError: #e.g. a ":" or "(", which is interpreted by eval as command
