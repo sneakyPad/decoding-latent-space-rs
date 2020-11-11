@@ -177,7 +177,7 @@ class VAE(pl.LightningModule):
         import sklearn
         # np_user_item, ls_y = sklearn.utils.shuffle(np_user_item, ls_y)
         if (self.used_data == 'dsprites'):
-            self.batch_size =2048
+            self.batch_size =4096
             loader = get_dataloaders('dsprites', batch_size=512, shuffle=False)
             dsprites_data = loader.dataset.imgs#[:5000]
             self.dsprites_lat_names = loader.dataset.lat_names
@@ -270,7 +270,7 @@ class VAE(pl.LightningModule):
             self.test_y = io.load_idx(MORPHO_MNIST_FILE_TEST_Y)
         elif(self.used_data == 'dsprites'):
             # self.test_dataset =
-            test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=self.batch_size, shuffle=False)
+            test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=int(self.batch_size/2), shuffle=False)
             return test_loader
         #regular mnist
 
@@ -811,7 +811,7 @@ if __name__ == '__main__':
 
 
     #%%
-    train = True
+    train = False
     synthetic_data = True
     expanded_user_item = False
     mixup = False
@@ -823,7 +823,7 @@ if __name__ == '__main__':
     used_data = "dsprites"
     base_path = 'results/models/vae/'
 
-    ls_epochs = [5]#5 with new data, 70 was trained w/ old mnist
+    ls_epochs = [1]#5 with new data, 70 was trained w/ old mnist
     #Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]
