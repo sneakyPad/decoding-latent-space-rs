@@ -80,6 +80,7 @@ class VAE(pl.LightningModule):
         self.ls_predicted_movies = []
         self.is_hessian_penalty_activated = self.hparams["is_hessian_penalty_activated"]
         self.expanded_user_item = self.hparams["expanded_user_item"]
+        self.used_data = self.hparams["used_data"]
         self.generative_factors = self.hparams["generative_factors"]
         self.mixup = self.hparams["mixup"]
         self.np_synthetic_data = self.hparams["synthetic_data"]
@@ -121,17 +122,37 @@ class VAE(pl.LightningModule):
         self.input_dimension = int(self.unique_movies *math.pow(4, self.generative_factors)) if self.expanded_user_item == True else self.unique_movies
 
 
-        self.fc1 = nn.Linear(in_features=self.input_dimension, out_features=400) #input
-        self.fc11 = nn.Linear(in_features=400, out_features=100) #input
-        self.encoder = nn.Sequential(self.fc1, self.fc11)
+        # self.fc1 = nn.Linear(in_features=self.input_dimension, out_features=400) #input
+        # self.fc11 = nn.Linear(in_features=400, out_features=100) #input
+        # self.encoder = nn.Sequential(self.fc1, self.fc11)
+        #
+        # self.fc21 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder mean
+        # self.fc22 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder variance
+        # self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
+        #
+        # self.fc41 = nn.Linear(in_features=100, out_features=400)
+        # self.fc42 = nn.Linear(in_features=400, out_features=self.input_dimension)
+        # self.decoder = nn.Sequential(self.fc41, self.fc42)
 
-        self.fc21 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder mean
-        self.fc22 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder variance
-        self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
+        self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=1200)  # input
+        self.fc12 = nn.Linear(in_features=1200, out_features=1000)  # input
+        self.fc13 = nn.Linear(in_features=1000, out_features=600)  # input
+        self.encoder = nn.Sequential(self.fc11, nn.ReLU(),
+                                     self.fc12, nn.ReLU(),
+                                     self.fc13, nn.ReLU()
+                                     )
 
-        self.fc41 = nn.Linear(in_features=100, out_features=400)
-        self.fc42 = nn.Linear(in_features=400, out_features=self.input_dimension)
-        self.decoder = nn.Sequential(self.fc41, self.fc42)
+        self.fc21 = nn.Linear(in_features=600, out_features=self.no_latent_factors)  # encoder mean
+        self.fc22 = nn.Linear(in_features=600, out_features=self.no_latent_factors)  # encoder variance
+
+        self.fc31 = nn.Linear(in_features=self.no_latent_factors, out_features=600)
+        self.fc32 = nn.Linear(in_features=600, out_features=1000)
+        # self.fc33 = nn.Linear(in_features=1000, out_features=1200)
+        self.fc34 = nn.Linear(in_features=1000, out_features=self.input_dimension)
+        self.decoder = nn.Sequential(self.fc31, nn.ReLU(),
+                                     self.fc32, #nn.ReLU(),
+                                     # self.fc33, nn.ReLU(),
+                                     self.fc34)
 
         self.KLD = None
         self.ls_kld = []
@@ -176,7 +197,6 @@ class VAE(pl.LightningModule):
             m.bias.data.zero_()
 
     def encode(self, x):
-        # h1 = F.relu(self.fc1(x))
         h1 = F.relu(self.encoder(x))
         return self.fc21(h1), self.fc22(h1)
 
@@ -186,9 +206,7 @@ class VAE(pl.LightningModule):
         return mu + eps * std
 
     def decode(self, z):
-        h3 = F.relu(self.fc3(z))
-        # return torch.sigmoid(self.fc4(h3))
-        return torch.sigmoid(self.decoder(h3))
+        return torch.sigmoid(self.decoder(z))
 
     def compute_z(self, mu, logvar):
 
@@ -245,19 +263,19 @@ class VAE(pl.LightningModule):
     def train_dataloader(self):
         #TODO Change shuffle to True, just for dev purpose switched on
         train_loader = torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=512, shuffle=False, num_workers=0, pin_memory=True
+            self.train_dataset, batch_size=256, shuffle=False, num_workers=0, pin_memory=True
         )
         return train_loader
 
     def test_dataloader(self):
         test_loader = torch.utils.data.DataLoader(
-            self.test_dataset, batch_size=16, shuffle=False, num_workers=0
+            self.test_dataset, batch_size=100, shuffle=False, num_workers=0
         )
         return test_loader
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
-        criterion = nn.MSELoss()  # mean-squared error loss
+        optimizer = optim.Adagrad(self.parameters(), lr=1e-2)
+        # criterion = nn.Binar()#MSELoss()  # mean-squared error loss
         # scheduler = StepLR(optimizer, step_size=1)
         return optimizer#, scheduler
 
@@ -516,13 +534,16 @@ class VAE(pl.LightningModule):
     # Reconstruction + KL divergence losses summed over all elements and batch
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies, p, q, new_kld_function=False):
         from scipy.stats import norm
-        zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
-        one_mask = ~zero_mask
+        # zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
+        # one_mask = ~zero_mask
         # x = x[one_mask]
         # recon_x = recon_x[one_mask]
         # MSE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
-        MSE = F.mse_loss(x, recon_x)#/x.shape[1]
-
+        #MSE = F.mse_loss(x, recon_x)# MSE is bad for this
+        try:
+            MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')# MSE is bad for this
+        except RuntimeError:
+            print('fo')
         if(new_kld_function):
             kl = self.new_kld_func(p,q)
             self.kld_matrix = np.append(self.kld_matrix, np.asarray(kl.tolist()), axis=0)
@@ -785,12 +806,13 @@ if __name__ == '__main__':
     continous_data=False
     normalvariate = False
     base_path = 'results/models/vae/'
+    used_data = None
 
-    ls_epochs = [30] #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
+    ls_epochs = [10,30] #-->7 #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
     #Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]
-    ls_betas = [] #disentangle_factors .0003
+    ls_betas = [0.5,2,4] #disentangle_factors .0003
     no_generative_factors = 3
 
     for epoch in ls_epochs:
@@ -817,7 +839,7 @@ if __name__ == '__main__':
                 experiment_path = utils.create_experiment_directory()
 
                 model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 2), expanded_user_item, mixup,
-                        no_generative_factors, epoch, is_hessian_penalty_activated)
+                        no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
 
                 args.max_epochs = epoch
 

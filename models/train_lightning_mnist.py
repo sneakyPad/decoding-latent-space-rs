@@ -144,8 +144,10 @@ class VAE(pl.LightningModule):
         self.fc31 = nn.Linear(in_features=self.no_latent_factors, out_features=1200)
         self.fc32 = nn.Linear(in_features=1200, out_features=1200)
         self.fc33 = nn.Linear(in_features=1200, out_features=1200)
+        self.fc331 = nn.Linear(in_features=1200, out_features=1200)
+
         self.fc34 = nn.Linear(in_features=1200, out_features=self.input_dimension)
-        self.decoder = nn.Sequential(self.fc31, self.fc32, self.fc33, self.fc34)
+        self.decoder = nn.Sequential(self.fc31, self.fc32, self.fc33,self.fc331, self.fc34)
 
         self.KLD = None
         self.ls_kld = []
@@ -282,7 +284,7 @@ class VAE(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.Adagrad(self.parameters(), lr=1e-2) #Adam
-        criterion = nn.MSELoss()  # mean-squared error loss
+        # criterion = nn.MSELoss()  # mean-squared error loss
         # scheduler = StepLR(optimizer, step_size=1)
         return optimizer#, scheduler
 
@@ -906,6 +908,13 @@ if __name__ == '__main__':
                 # sample = model.decode(z)
                 # save_image(sample.view(64, 1, 28, 28), './results/mnist_imgs/sample_morpho_20' + '.png')
 
+                base_curated_test_path = "results/models/curated_vae/"
+                model_path = base_curated_test_path + "4_beta_10_epochs_10_lf_synt_True.ckpt"
+                model_path = base_curated_test_path + "4_beta_16_epochs_10_lf_synt_True.ckpt"
+                model_path = base_curated_test_path + "4_beta_4_epochs_10_lf_synt_True.ckpt"
+                attribute_path = base_curated_test_path + "4_beta_10_epochs_10_lf_synt_True_attributes.pickle"
+                attribute_path = base_curated_test_path + "4_beta_16_epochs_10_lf_synt_True_attributes.pickle"
+                attribute_path = base_curated_test_path + "4_beta_4_epochs_10_lf_synt_True_attributes.pickle"
 
                 test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
                 # test_model.test_size = model_params['test_size']
@@ -954,7 +963,7 @@ if __name__ == '__main__':
 
 #%%
 # plot_ae_img(batch_features,test_loader)
-# ls_dct_test =[{'a': 5},{'b': 10}]
+# ls_dct_test =[{'a': 5},{'b': 10}11
 # ls_x=[]
 # ls_y=[]
 # for mce in ls_dct_test:

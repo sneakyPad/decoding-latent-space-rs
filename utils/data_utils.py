@@ -205,7 +205,7 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path, contino
     dct_data = {'genres': genres, 'year': year, 'stars': stars, 'rating': rating}
     dct_base_data = {key: dct_data[key] for key in ls_attributes}
 
-    n_users = 600*2
+    n_users = 600*100
     n_movies = len(ls_attributes * no_samples)
     np_user_item = np.zeros((n_users,n_movies),dtype="float32")
 
@@ -242,8 +242,8 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path, contino
         #
 
         for idx in range(no_users_with_same_preference):
-            min_sample = no_samples*0.4
-            max_sample = no_samples*0.8
+            min_sample = int(no_samples*0.2)
+            max_sample = int(no_samples*0.4)
             no_of_seen_items = int(random.uniform(min_sample,max_sample))#30, 49
             if(normalvariate):
                 mu = (end+1)-(no_samples/2)
@@ -264,12 +264,21 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path, contino
                    title = "Heatmap of User-Item Matrix",
                    y_label="User ID",
                    x_label="Movie ID",
-                   experiment_path = experiment_path,
+                   file_name="heatmap-user-item",
+                   experiment_path = experiment_path+"images/",
                    dct_params= {'sample_size':no_samples, 'no_users': n_users})
 
     np.random.seed(42)
     import sklearn
     np_user_item, ls_y = sklearn.utils.shuffle(np_user_item, ls_y)
+
+    plot_utils.create_heatmap(np_arr=np_user_item,
+                              title="Heatmap of shuffled User-Item Matrix",
+                              y_label="User ID",
+                              x_label="Movie ID",
+                              file_name="shuffled-heatmap-user-item",
+                              experiment_path=experiment_path+"images/",
+                              dct_params={'sample_size': no_samples, 'no_users': n_users})
 
     print("Shape of User-Item Matrix:{}".format(np_user_item.shape))
     return np_user_item, ls_y

@@ -17,14 +17,14 @@ import os
 import numpy as np
 
 
-def create_heatmap(np_arr, title, y_label, x_label, experiment_path, dct_params):
+def create_heatmap(np_arr, title, y_label, x_label,file_name, experiment_path, dct_params):
     ax = sns.heatmap(np_arr)
     # plt.suptitle(title)
     ax.set(title=title)
     plt.ylabel(y_label)
     plt.xlabel(x_label)
 
-    save_figure(ax.get_figure(), experiment_path, 'heatmap-user-item', dct_params)
+    save_figure(ax.get_figure(), experiment_path, file_name, dct_params)
     plt.show()
 
 def print_nn_summary(model, size):
@@ -241,7 +241,22 @@ def plot_kld_of_latent_factor(model, title, experiment_path, dct_params):
 def plot_pairplot_lf_z(model, title, experiment_path, dct_params):
     df_z_matrix = pd.DataFrame(data=model.np_z_test,
                                  columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
-    df_z_matrix['y'] = model.test_y
+    if(model.used_data =='dsprites'):
+        lf_cols = [str(i) for i in range(model.np_z_test.shape[1])]
+        ls_gen_facs_partially = list(model.dsprites_lat_names)
+        ls_gen_facs = ['y_' + name for name in ls_gen_facs_partially]
+        ls_gen_facs.insert(0,'y_white')
+        for idx, name in enumerate(ls_gen_facs):
+            df_z_matrix[name] = model.test_y[:, idx]
+
+        df_z_matrix = df_z_matrix.melt(id_vars=ls_gen_facs,value_vars=lf_cols, var_name='lf',
+                                     value_name='values')  # Transforms it to: _| cols | vals|
+
+    elif(model.used_data =='morpho'):
+        df_z_matrix['y'] = model.test_y
+    else:
+        raise NotImplementedError
+
     fig = sns.pairplot(df_z_matrix, corner=True, aspect=1.65, hue='y').fig
 
     fig.suptitle(title)
@@ -329,6 +344,7 @@ def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params, s
                                  columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
 
     if(model.used_data =='dsprites'):
+
         ls_gen_facs_partially = list(model.dsprites_lat_names)
         ls_gen_facs = ['y_'+ name for name in ls_gen_facs_partially]
         ls_gen_facs.insert('y_whitey',0)

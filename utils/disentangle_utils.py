@@ -178,22 +178,24 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
     n_samples = len(test_y)
     n_train, n_dev, n_test = int(train_fract * n_samples), int(dev_fract * n_samples), int(test_fract * n_samples)
     if(test_model.used_data == 'dsprites'):
-        n_z = test_y.shape[1]
+        gts = gts[:, 2:]  # remove generative factor 'white' and 'shape'
+        n_z = gts.shape[1]
         gts = pd.DataFrame(data=gts)
-    # create 'gap' in data if zeroshot (unseen factor combinations)
-    if zshot:
-        try:
-            gap_ids = np.load(os.path.join(data_dir, 'gap_ids.npy'))
-        except IOError:
-            gap_ids = get_gap_ids(gts)
-
-
-        def create_gap(data):
-            return np.delete(data, gap_ids, 0)
-
-    # gts = pd.get_dummies(pd.DataFrame(data=gts))
-    if (test_model.used_data == 'morpho'):
+    else:
         gts = pd.get_dummies(pd.Series(gts))
+        n_z = gts.shape[1]
+    # # create 'gap' in data if zeroshot (unseen factor combinations)
+    # if zshot:
+    #     try:
+    #         gap_ids = np.load(os.path.join(data_dir, 'gap_ids.npy'))
+    #     except IOError:
+    #         gap_ids = get_gap_ids(gts)
+    #
+    #
+    #     def create_gap(data):
+    #         return np.delete(data, gap_ids, 0)
+
+
 
     gts = split_data(gts, n_train, n_dev, n_test, zshot)
     for i in range(n_models):
