@@ -134,23 +134,23 @@ class VAE(pl.LightningModule):
         # self.fc42 = nn.Linear(in_features=400, out_features=self.input_dimension)
         # self.decoder = nn.Sequential(self.fc41, self.fc42)
 
-        self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=1200)  # input
-        self.fc12 = nn.Linear(in_features=1200, out_features=1000)  # input
-        self.fc13 = nn.Linear(in_features=1000, out_features=600)  # input
-        self.encoder = nn.Sequential(self.fc11, nn.ReLU(),
-                                     self.fc12, nn.ReLU(),
-                                     self.fc13, nn.ReLU()
+        self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=200)  # input
+        # self.fc12 = nn.Linear(in_features=600, out_features=300)  # input
+        # self.fc13 = nn.Linear(in_features=1000, out_features=600)  # input
+        self.encoder = nn.Sequential(self.fc11#, nn.LeakyReLU(),
+                                     # self.fc12, nn.LeakyReLU()
+                                     # self.fc13, nn.LeakyReLU()
                                      )
 
-        self.fc21 = nn.Linear(in_features=600, out_features=self.no_latent_factors)  # encoder mean
-        self.fc22 = nn.Linear(in_features=600, out_features=self.no_latent_factors)  # encoder variance
+        self.fc21 = nn.Linear(in_features=200, out_features=self.no_latent_factors)  # encoder mean
+        self.fc22 = nn.Linear(in_features=200, out_features=self.no_latent_factors)  # encoder variance
 
-        self.fc31 = nn.Linear(in_features=self.no_latent_factors, out_features=600)
-        self.fc32 = nn.Linear(in_features=600, out_features=1000)
+        self.fc31 = nn.Linear(in_features=self.no_latent_factors, out_features=200)
+        # self.fc32 = nn.Linear(in_features=600, out_features=1000)
         # self.fc33 = nn.Linear(in_features=1000, out_features=1200)
-        self.fc34 = nn.Linear(in_features=1000, out_features=self.input_dimension)
-        self.decoder = nn.Sequential(self.fc31, nn.ReLU(),
-                                     self.fc32, #nn.ReLU(),
+        self.fc34 = nn.Linear(in_features=200, out_features=self.input_dimension)
+        self.decoder = nn.Sequential(self.fc31, nn.LeakyReLU(),
+                                     # self.fc32, nn.LeakyReLU(),
                                      # self.fc33, nn.ReLU(),
                                      self.fc34)
 
@@ -214,6 +214,7 @@ class VAE(pl.LightningModule):
         return z
 
     def sample(self, mu, log_var):
+        # if (self.training):
         std = torch.exp(log_var / 2)
         p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
         q = torch.distributions.Normal(mu, std)
@@ -233,6 +234,8 @@ class VAE(pl.LightningModule):
             # print(x.view(-1, self.unique_movies)[0])
             # print(x[0])
             mu, logvar = self.encode(x) #40960/512 (Batchsize) results in 512,80
+
+
             # z = self.compute_z(mu, logvar)
             p, q, z = self.sample(mu, logvar)
             self.z = z
@@ -263,7 +266,7 @@ class VAE(pl.LightningModule):
     def train_dataloader(self):
         #TODO Change shuffle to True, just for dev purpose switched on
         train_loader = torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=256, shuffle=False, num_workers=0, pin_memory=True
+            self.train_dataset, batch_size=100, shuffle=True, num_workers=0, pin_memory=True
         )
         return train_loader
 
@@ -274,7 +277,7 @@ class VAE(pl.LightningModule):
         return test_loader
 
     def configure_optimizers(self):
-        optimizer = optim.Adagrad(self.parameters(), lr=1e-2)
+        optimizer = optim.Adam(self.parameters(), lr=1e-3) #, weight_decay = 0.00001
         # criterion = nn.Binar()#MSELoss()  # mean-squared error loss
         # scheduler = StepLR(optimizer, step_size=1)
         return optimizer#, scheduler
@@ -284,10 +287,8 @@ class VAE(pl.LightningModule):
         ls_grad_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
         self.np_z_train = np.append(self.np_z_train, np.asarray(ls_grad_z.tolist()),
                                     axis=0)  # TODO Describe in thesis that I get back a grad object instead of a pure tensor as it is in the test method since we are in the training method.
-        self.np_mu_train = np.append(self.np_mu_train, np.asarray(ts_mu_chunk.tolist()), axis=0)
-        self.np_logvar_train = np.append(self.np_logvar_train, np.asarray(ts_logvar_chunk.tolist()), axis=0)
 
-        print('Shape np_z_train: {}'.format(self.np_z_train.shape))
+        # print('Shape np_z_train: {}'.format(self.np_z_train.shape))
 
 
         z_mean = self.np_z_train.mean(axis=0)
@@ -310,7 +311,7 @@ class VAE(pl.LightningModule):
             #     self.z_max_train = z_max
 
 
-        print('collect_z_values in seconds: {}'.format(time.time() - start))
+        # print('collect_z_values in seconds: {}'.format(time.time() - start))
 
     def average_mce_batch(self, mce_batch, mce_mini_batch):
         if (mce_batch == None):
@@ -344,20 +345,47 @@ class VAE(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         mce_minibatch=None
 
-        print('train step')
+        # if(self.current_epoch > 0):
+
+            # print('self.fc11: ', np.isnan(np.sum(self.fc11.weight.grad.detach().numpy())))
+            # print('self.fc12: ', np.isnan(np.sum(self.fc12.weight.grad.detach().numpy())))
+            # print('self.fc13: ', np.isnan(np.sum(self.fc13.weight.grad.detach().numpy())))
+            # print('self.fc21: ', np.isnan(np.sum(self.fc21.weight.grad.detach().numpy())))
+            # print('self.fc22: ', np.isnan(np.sum(self.fc22.weight.grad.detach().numpy())))
+            # print('self.fc31: ', np.isnan(np.sum(self.fc31.weight.grad.detach().numpy())))
+            # print('self.fc32: ', np.isnan(np.sum(self.fc32.weight.grad.detach().numpy())))
+            # print('self.fc34: ', np.isnan(np.sum(self.fc34.weight.grad.detach().numpy())))
+
+            # output = np.isnan(np.sum(self.fc11.weight.detach().numpy())) \
+            #          | np.isnan(np.sum(self.fc12.weight.detach().numpy())) \
+            #          # | np.isnan(np.sum(self.fc13.weight.detach().numpy())) \
+            #          | np.isnan(np.sum(self.fc21.weight.detach().numpy())) \
+            #          | np.isnan(np.sum(self.fc22.weight.detach().numpy())) \
+            #          | np.isnan(np.sum(self.fc31.weight.detach().numpy())) \
+            #          | np.isnan(np.sum(self.fc32.weight.detach().numpy())) \
+            #          | np.isnan(np.sum(self.fc34.weight.detach().numpy()))
+            #
+            # if(output):
+            #     print('ho')
+            # print('train step')
         batch_len = batch.shape[0]
-        ts_batch_user_features = batch.view(-1, self.input_dimension)
+        ts_batch_user_features = batch#.view(-1, self.input_dimension)
         if(self.mixup):
             ts_batch_user_features, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, ts_batch_user_features, alpha=1.0, use_cuda=False)
 
+        if (self.current_epoch == self.sigmoid_annealing_threshold):
+
+            print('stop')
+
         # ts_batch_user_features = ts_batch_user_features * random.uniform(0.4,0.9)
         recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)  # sample data
-
+        if(np.isnan(np.sum(recon_batch.detach().numpy()))):
+            print('s')
         # ls_preference = self.train_y[batch_idx * batch_len :(batch_idx + 1) * batch_len]
 
 
         if(self.current_epoch == self.max_epochs-1):
-            print("Last round..")
+            # print("Last round..")
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)#, ls_preference
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
@@ -373,28 +401,44 @@ class VAE(pl.LightningModule):
                                                   self.unique_movies,
                                                   p,
                                                   q,
-                                                  new_kld_function = True)
+                                                  new_kld_function = False)
         hp_loss =0
+        #normalizing reconstruction loss
+        batch_mse = batch_mse / len(ts_batch_user_features)
+
         if(self.is_hessian_penalty_activated and self.current_epoch > int(1/3*self.max_epochs-1)):
             print('<---- Applying Hessian Penalty ---->')
             np_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
             hp_loss = hessian_penalty(G=self.decode, z=np_z)
             print('Hessian Penalty:{}'.format(hp_loss))
-            batch_loss = hp_loss
+            batch_loss = batch_mse + hp_loss + batch_kld
         else:
-
             batch_loss = batch_mse + batch_kld
-        self.ls_kld.append(self.KLD.tolist())
 
+        self.ls_kld.append(self.KLD.tolist())
         #Additional logs go into tensorboard_logs
         tensorboard_logs = {'train_loss': batch_loss,
                 'KLD-Train': batch_kld,
-                'MSE-Train': batch_mse} #
-        return {'loss': batch_loss, 'log': tensorboard_logs}
+                'MSE-Train': batch_mse,
+                            } #
+        return {'loss': batch_loss, 'log': tensorboard_logs,
+                'var': np.exp(np.asarray(ts_mu_chunk.tolist())),
+                'logvar': np.asarray(ts_mu_chunk.tolist()).mean(axis=0),
+                'mu':np.asarray(ts_mu_chunk.tolist()).mean(axis=0)}
 
 
     def training_epoch_end(self, outputs):
         print("Saving MCE before KLD is applied...")
+
+        avg_logvar = np.array([x['logvar'] for x in outputs]).mean(axis=0)
+        # avg_var = np.array([x['var'] for x in outputs]).mean(axis=0)
+        avg_mu = np.array([x['mu'] for x in outputs]).mean(axis=0)
+
+
+        self.np_logvar_train = np.append(self.np_logvar_train, [avg_logvar],axis=0)
+        self.np_mu_train = np.append(self.np_mu_train, [avg_mu],axis=0)
+
+
         if(self.current_epoch == self.sigmoid_annealing_threshold ):
             utils.save_dict_as_json(self.mce_batch_train, 'mce_results_wo_kld.json', self.experiment_path_train)
         return {}
@@ -407,6 +451,8 @@ class VAE(pl.LightningModule):
 
         batch_mce =0
         test_loss = 0
+
+
 
         # self.eval()
         ts_batch_user_features = batch.view(-1, self.input_dimension)
@@ -434,7 +480,9 @@ class VAE(pl.LightningModule):
                                             self.unique_movies,
                                             p,
                                             q,
-                                            new_kld_function=True)
+                                            new_kld_function=False)
+        #normalizing reconstruction loss
+        batch_mse = batch_mse/len(ts_batch_user_features)
         batch_loss = batch_mse + kld
 
         mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
@@ -525,7 +573,7 @@ class VAE(pl.LightningModule):
 
     def new_kld_func(self, p, q):
         log_qz = q.log_prob(self.z)
-        log_pz = p.log_prob(self.z)
+        log_pz = p.log_prob(self.z) #Normalverteilung
 
         kl = log_qz - log_pz
 
@@ -542,12 +590,14 @@ class VAE(pl.LightningModule):
         #MSE = F.mse_loss(x, recon_x)# MSE is bad for this
         try:
             MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')# MSE is bad for this
-        except RuntimeError:
-            print('fo')
+            if(np.isnan(np.sum(MSE.detach().numpy()))):
+                print('s')
+        except RuntimeError as e:
+            print('fo', e)
         if(new_kld_function):
             kl = self.new_kld_func(p,q)
             self.kld_matrix = np.append(self.kld_matrix, np.asarray(kl.tolist()), axis=0)
-            kld_mean = kl.mean()
+            kld_mean = kl.mean(dim=0).mean()
         else:
             # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
             # https://arxiv.org/abs/1312.6114
@@ -556,15 +606,37 @@ class VAE(pl.LightningModule):
             # q = norm.pdf(x[:,0].tolist(), 0, 1)
             # kl_medium = self.kl_divergence(p,q)
 
+            #1)
+            # kl = self.new_kld_func(p, q)
+            # self.kld_matrix = np.append(self.kld_matrix, np.asarray(kl.tolist()), axis=0)
+            # kld_mean = kl.mean()
+            # print('kld mean 1:', kld_mean)
+
+            #2)
             kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
             kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors, dim=1)) #0: sum over latent factors (columns), 1: sum over sample (rows)
+            # print('kld mean 2 dim 0:', kld_mean)
+            # kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors,
+            #                                        dim=1))  # 0: sum over latent factors (columns), 1: sum over sample (rows)
+            # print('kld mean 2 dim 1:', kld_mean)
             self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0)
+            #3)
+            #
+            # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            # # Normalise by same number of elements as in reconstruction
+            # KLD /= x.view(-1, self.input_dimension).data.shape[0] * self.input_dimension
 
+            #4
+            # KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
+            # KLD = torch.sum(KLD_element).mul_(-0.5)
+        print('kld true: ', kld_mean)
+        print('BCE: ', MSE)
         if(self.training):
             kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+
         else:
             kld_weight = beta
-
+        # print('kld weight: {}'.format(kld_weight))
         self.KLD = kld_mean * kld_weight
 
         # CE = -torch.mean(torch.sum(F.log_softmax(recon_x, 1) * x, -1))
@@ -615,6 +687,8 @@ class VAE(pl.LightningModule):
         with open(path, 'rb') as handle:
             dct_attributes = pickle.load(handle)
         self.np_z_train = dct_attributes['np_z_train']
+        self.np_logvar_train = dct_attributes['np_logvar_train']
+        self.np_mu_train = dct_attributes['np_mu_train']
         self.train_y = dct_attributes['train_y']
         self.test_y = dct_attributes['test_y']
         self.ls_kld = dct_attributes['ls_kld']
@@ -629,6 +703,8 @@ class VAE(pl.LightningModule):
 
     def save_attributes(self, path):
         dct_attributes = {'np_z_train':self.np_z_train,
+                          'np_logvar_train': self.np_logvar_train,
+                          'np_mu_train': self.np_mu_train,
                           'train_y': self.train_y,
                           'test_y':self.test_y,
                           'ls_kld':self.ls_kld,
@@ -803,129 +879,142 @@ if __name__ == '__main__':
     expanded_user_item = False
     mixup = False
     is_hessian_penalty_activated = False
-    continous_data=False
+    continous_data = False
     normalvariate = False
+    ls_normalvariate = [False, True]
+    ls_continous = [False, True]
     base_path = 'results/models/vae/'
     used_data = None
+    full_test_routine = False
+    no_generative_factors = 3
 
-    ls_epochs = [10,30] #-->7 #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
+
+    ls_epochs = [50,70] #-->7 #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
     #Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]
-    ls_betas = [0.5,2,4] #disentangle_factors .0003
-    no_generative_factors = 3
+    beta_normalized = 10 / (20 * no_generative_factors)
+    ls_betas = [0,1, beta_normalized, 4] #disentangle_factors .0003
 
     for epoch in ls_epochs:
-        for lf in ls_latent_factors:
-            if(len(ls_betas)==0):
-                if(expanded_user_item):
-                    beta_normalized = lf/(800)
-                else:
-                    beta_normalized = lf / (20 * no_generative_factors) #lf/input_size, e.g. 2/10000 = 0.0002
-                ls_betas.append(beta_normalized)
-            for beta in ls_betas:
-                train_tag = "train"
-                if(not train):
-                    train_tag = "test"
+        for normalvariate in ls_normalvariate:
+            for continous_data in ls_continous:
+                 for lf in ls_latent_factors:
+                    if(len(ls_betas)==0):
+                        if(expanded_user_item):
+                            beta_normalized = lf/(800)
+                        else:
+                            beta_normalized = lf / (20 * no_generative_factors) #lf/input_size, e.g. 2/10000 = 0.0002
+                        ls_betas.append(beta_normalized)
+                    for beta in ls_betas:
+                        train_tag = "train"
+                        if(not train):
+                            train_tag = "test"
 
-                print("Processing model with: {} epochs, {} latent factors, {} beta".format(epoch, lf, beta))
-                exp_name = "{}_beta_{}_epochs_{}_lf_synt_{}".format(beta, epoch, lf, synthetic_data)
-                wandb_name = exp_name + "_" + train_tag
-                model_name = exp_name + ".ckpt"
-                attribute_name = exp_name + "_attributes.pickle"
-                model_path = base_path + model_name
-                attribute_path = base_path + attribute_name
+                        print("Processing model with: {} epochs, {} latent factors, {} beta".format(epoch, lf, beta))
+                        exp_name = "{}_beta_{}_epochs_{}_lf_synt_{}".format(beta, epoch, lf, synthetic_data)
+                        wandb_name = exp_name + "_" + train_tag
+                        model_name = exp_name + ".ckpt"
+                        attribute_name = exp_name + "_attributes.pickle"
+                        model_path = base_path + model_name
+                        attribute_path = base_path + attribute_name
 
-                experiment_path = utils.create_experiment_directory()
+                        experiment_path = utils.create_experiment_directory()
 
-                model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 2), expanded_user_item, mixup,
-                        no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
+                        model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 100), expanded_user_item, mixup,
+                                no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
 
-                args.max_epochs = epoch
+                        args.max_epochs = epoch
 
-                wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', train_tag], name=wandb_name)
-                trainer = pl.Trainer.from_argparse_args(args,
-                                                        logger=wandb_logger, #False
-                                                        gpus=0,
-                                                        weights_summary='full',
-                                                        checkpoint_callback = False,
-                                                        callbacks = [ProgressBar(), EarlyStopping(monitor='train_loss')]
-                )
-
-
-
-                if(train):
-                    print('<---------------------------------- VAE Training ---------------------------------->')
-                    print("Running with the following configuration: \n{}".format(args))
-                    if (synthetic_data):
-                        model_params['synthetic_data'], model_params['syn_y'] = data_utils.create_synthetic_data(no_generative_factors,
-                                                                                                                 experiment_path,
-                                                                                                                 expanded_user_item,
-                                                                                                                 continous_data,
-                                                                                                                 normalvariate)
-                        generate_distribution_df()
-
-                    model = VAE(model_params)
-                    wandb_logger.watch(model, log='gradients', log_freq=100)
-
-                    # utils.print_nn_summary(model, size =200)
-
-                    print('------ Start Training ------')
-                    trainer.fit(model)
-                    kld_matrix = model.KLD
-                    # print('% altering has provided information gain:{}'.format(
-                    #     int(settings.ig_m_hat_cnt) / (int(settings.ig_m_cnt) + int(settings.ig_m_hat_cnt))))
-
-                    # model.dis_KLD
+                        wandb_logger = WandbLogger(project='recommender-xai', tags=['vae', train_tag], name=wandb_name)
+                        trainer = pl.Trainer.from_argparse_args(args,
+                                                                # limit_test_batches=0.1,
+                                                                # precision =16,
+                                                                logger=wandb_logger, #False
+                                                                gradient_clip_val=0.5,
+                                                                # accumulate_grad_batches=0,
+                                                                gpus=0,
+                                                                weights_summary='full',
+                                                                checkpoint_callback = False,
+                                                                callbacks = [ProgressBar(), EarlyStopping(monitor='train_loss')]
+                        )
 
 
-                    print('------ Saving model ------')
-                    trainer.save_checkpoint(model_path)
-                    model.save_attributes(attribute_path)
 
-                print('------ Load model -------')
-                test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
-                # test_model.test_size = model_params['test_size']
-                test_model.load_attributes_and_files(attribute_path)
-                test_model.experiment_path_test = experiment_path
+                        if(train):
+                            print('<---------------------------------- VAE Training ---------------------------------->')
+                            print("Running with the following configuration: \n{}".format(args))
+                            if (synthetic_data):
+                                model_params['synthetic_data'], model_params['syn_y'] = data_utils.create_synthetic_data(no_generative_factors,
+                                                                                                                         experiment_path,
+                                                                                                                         expanded_user_item,
+                                                                                                                         continous_data,
+                                                                                                                         normalvariate)
+                                generate_distribution_df()
 
-                # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
-                print('------ Start Test ------')
-                start = time.time()
-                trainer.test(test_model) #The test loop will not be used until you call.
-                print('Test time in seconds: {}'.format(time.time() - start))
-                print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
-                # print(results)
+                            model = VAE(model_params)
+                            wandb_logger.watch(model, log='gradients', log_freq=100)
 
-                dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
+                            # utils.print_nn_summary(model, size =200)
 
-                plot_utils.plot_results(test_model,
-                                   test_model.experiment_path_test,
-                                   test_model.experiment_path_train,
-                                   dct_param )
+                            print('------ Start Training ------')
+                            trainer.fit(model)
+                            kld_matrix = model.KLD
+                            # print('% altering has provided information gain:{}'.format(
+                            #     int(settings.ig_m_hat_cnt) / (int(settings.ig_m_cnt) + int(settings.ig_m_hat_cnt))))
 
-                disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
-
-                artifact = wandb.Artifact('Plots', type='result')
-                artifact.add_dir(experiment_path)#, name='images'
-                wandb_logger.experiment.log_artifact(artifact)
+                            # model.dis_KLD
 
 
-                working_directory = os.path.abspath(os.getcwd())
-                absolute_path = working_directory + "/" + experiment_path + "images/"
-                ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
-                # wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
+                            print('------ Saving model ------')
+                            trainer.save_checkpoint(model_path)
+                            model.save_attributes(attribute_path)
 
-                dct_images = {img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for img_path in ls_path_images}
-                wandb.log(dct_images)
+                        print('------ Load model -------')
+                        test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+                        # test_model.test_size = model_params['test_size']
+                        test_model.load_attributes_and_files(attribute_path)
+                        test_model.experiment_path_test = experiment_path
 
-                # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
+                        # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
+                        print('------ Start Test ------')
+                        start = time.time()
+                        dct_param ={'epochs':epoch, 'lf':lf,'beta':beta, 'normal':normalvariate,'continous':continous_data}
+                        # plot_utils.plot_samples(test_model, experiment_path, dct_param)
 
-                #TODO Bring back in
+                        trainer.test(test_model) #The test loop will not be used until you call.
+                        print('Test time in seconds: {}'.format(time.time() - start))
+                        print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
+                        # print(results)
 
-                # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
-                # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
-                print('Test done')
+
+                        plot_utils.plot_results(test_model,
+                                           test_model.experiment_path_test,
+                                           test_model.experiment_path_train,
+                                           dct_param )
+
+                        disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
+
+                        artifact = wandb.Artifact('Plots', type='result')
+                        artifact.add_dir(experiment_path)#, name='images'
+                        wandb_logger.experiment.log_artifact(artifact)
+
+
+                        working_directory = os.path.abspath(os.getcwd())
+                        absolute_path = working_directory + "/" + experiment_path + "images/"
+                        ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
+                        # wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
+
+                        dct_images = {img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for img_path in ls_path_images}
+                        wandb.log(dct_images)
+
+                        # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
+
+                        #TODO Bring back in
+
+                        # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
+                        # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
+                        print('Test done')
 
     exit()
 

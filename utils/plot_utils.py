@@ -83,11 +83,9 @@ def plot_swarmplot(df, title, experiment_path,dct_params):
     ax=sns.swarmplot(x="cols", y="values",s=3, data=df)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=65)
     ax.set(title=title)
-
+    plt.show()
     save_figure(ax.get_figure(), experiment_path, 'swarmplot', dct_params)
 
-
-    plt.show()
 
 def plot_violinplot(df, title,experiment_path,dct_params):
     # plt.xticks(rotation=45)
@@ -103,6 +101,7 @@ def plot_distribution(df_melted, title, experiment_path, dct_params):
     # sns.violinplot(x=foo[:,0])
     fig = sns.displot(df_melted, x="values", hue="cols", kind="kde", rug=True).fig
     fig.suptitle(title)
+    plt.xlabel('z values')
     save_figure(fig, experiment_path, 'distribution', dct_params)
 
     plt.show()
@@ -252,10 +251,12 @@ def plot_pairplot_lf_z(model, title, experiment_path, dct_params):
         df_z_matrix = df_z_matrix.melt(id_vars=ls_gen_facs,value_vars=lf_cols, var_name='lf',
                                      value_name='values')  # Transforms it to: _| cols | vals|
 
-    elif(model.used_data =='morpho'):
-        df_z_matrix['y'] = model.test_y
+    # elif(model.used_data =='morpho'):
+    #     df_z_matrix['y'] = model.test_y
     else:
-        raise NotImplementedError
+        df_z_matrix['y'] = model.test_y
+
+        # raise NotImplementedError
 
     fig = sns.pairplot(df_z_matrix, corner=True, aspect=1.65, hue='y').fig
 
@@ -296,6 +297,7 @@ def polar_plot(model, title, experiment_path, dct_params):
     # ys = xs ** 2
 
     fig = plt.figure(figsize=(5, 10))
+    plt.title('Cartesian to Polar Coordinates for the first two Latent Factors')
     ax = plt.subplot(2, 1, 1)
 
     # If we want the same offset for each text instance,
@@ -372,28 +374,30 @@ def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params, s
         # Here we modify the tickangle of the xaxis, resulting in rotated labels.
         # fig.update_layout(barmode='group', xaxis_tickangle=-45)
         # plt.show()
-
-
-    df = df_z_matrix.groupby('y').agg("mean")#.reset_index()
+    else:
+        df_z_matrix['y'] = model.test_y
+        df = df_z_matrix.groupby('y').agg("mean")#.reset_index()
 
 
 
     #Create plot for generative factors on the x-axis
     ax = df.plot.bar(stacked=False,rot=0)
-    plt.title('gen-factors2latent-factors-mean', fontsize=17, y=1.08)
+    plt.title('Mean of Z value for Generative Factors', fontsize=17, y=1.08)
     plt.tight_layout()
     fig = ax.get_figure()
     plt.ylabel('z value')
+    plt.xlabel('Generative Factor (y)')
     save_figure(fig, experiment_path, 'gen-factors2latent-factors-mean', dct_params)
     plt.show()
 
     # Create plot for latent factors on the x-axis
     df=df.T
     ax = df.plot.bar(stacked=False, rot=0)
-    plt.title('latent-factors2gen-factors-mean', fontsize=17, y=1.08)
+    plt.title('Mean of Z value for Latent Factors', fontsize=17, y=1.08)
     plt.tight_layout()
     fig = ax.get_figure()
     plt.ylabel('z value')
+    plt.ylabel('Latent Factor')
     save_figure(fig, experiment_path, 'latent-factors2gen-factors-mean', dct_params)
     plt.show()
 
@@ -407,17 +411,25 @@ def plot_gen_factors2latent_factors(model, title, experiment_path, dct_params, s
         save_figure(fig, experiment_path, 'gen-factors2latent-factors-sum', dct_params)
         plt.show()
 
-def plot_parallel_lf(model):
+def plot_parallel_lf(model,experiment_path, dct_params):
 
         df_z_matrix = pd.DataFrame(data=model.np_z_test,
                                    columns=[str(i) for i in range(0, model.np_z_test.shape[1])])
         df_z_matrix['y'] = model.test_y
         ax = pd.plotting.parallel_coordinates(
             df_z_matrix, 'y', colormap='viridis')
+        plt.xlabel("Latent Factor")
+        plt.ylabel("z value")
+        plt.title('Parallel Plot for Latent Factors and Generative Factor ')
+        save_figure(ax.get_figure(), experiment_path, 'parrallel-latent-generative', dct_params)
+
         plt.show()
 
-def swarm_plot_melted(df_melted):
-    sns.catplot(x="cols", y="values", hue="y", kind="swarm", data=df_melted)
+def swarm_plot_melted(df_melted,experiment_path_test, dct_params):
+    fig = sns.catplot(x="cols", y="values", hue="y", kind="swarm", data=df_melted)
+    plt.title('Swarm Plot for Generative Factors')
+    save_figure(fig, experiment_path_test, 'swarm-plot-z-generative', dct_params)
+
     plt.show()
 
 
@@ -468,48 +480,97 @@ def plot_movies_combined_with_z(model, experiment_path, dct_params):
 
 def plot_covariance_heatmap(model, exp_img_path, dct_params):
     # logvar_mean_vec_train  = model.np_logvar_train.mean(axis=0)
-    logvar_mean_vec_test =  model.np_logvar_test.mean(axis=0)
+    logvar_mean_vec_test = model.np_logvar_test.mean(axis=0)
 
     # create_heatmap(logvar_mean_vec_train, 'logvar train', 'dimension', 'dimension', exp_img_path, dct_params)
     create_heatmap(logvar_mean_vec_test, 'logvar test', 'dimension', 'dimension', exp_img_path, dct_params)
 
 
+def plot_samples(test_model, experiment_path, dct_param):
+    ls_samples = []
+    z = torch.randn(15, test_model.no_latent_factors)
+    sample = test_model.decode(z)
+    np_samples = sample.detach().numpy()
+    create_heatmap(np_samples, 'Heatmap of Samples', 'User ID', 'Item ID',
+                              'heatmap-samples', experiment_path, dct_param)
+
+    # sorted_idx3 = np.argsort(-np_samples[:, 40:60].mean(axis=1))
+    # np_samples = np_samples[sorted_idx3]
+    #
+    # sorted_idx2 = np.argsort(-np_samples[5:, 20:40].mean(axis=1)) + 5
+    # np_samples = np_samples[sorted_idx3[:5].tolist() + sorted_idx2.tolist()]
+    #
+    # sorted_idx = np.argsort(-np_samples[10:, :20].mean(axis=1)) + 10
+    # np_samples = np_samples[sorted_idx3[:5].tolist() + sorted_idx2[:5].tolist() + sorted_idx.tolist()]
+    #
+    # plot_utils.create_heatmap(np_samples, 'Heatmap of Rearanged Samples', 'User ID', 'Item Id',
+    #                           'heatmap-samples-rearanged', experiment_path, dct_param)
+
+    np_rearanged = np_samples[np.lexsort((-np_samples[:, 40:60].mean(axis=1),
+                                 -np_samples[:, 20:40].mean(axis=1),
+                                 -np_samples[:, :20].mean(axis=1)))]
+    create_heatmap(np_rearanged, 'Heatmap of Rearranged Samples', 'User ID', 'Item ID',
+                              'heatmap-samples-rearranged', experiment_path, dct_param)
+
+    # ls_samples = [np_samples[:, i] for i in range(0, 60)]
+    # foo = np_samples[np.lexsort((ls_samples))]
+    # plot_utils.create_heatmap(foo, 'Heatmap of Rearanged Samples 2', 'User ID', 'Item Id',
+    #                           'heatmap-samples-rearanged', experiment_path, dct_param)
+    # df_s = pd.DataFrame(np_samples).sort_values(by=[i for i in range(0, 60)],axis=1)
+    # bar=np_samples[np.lexsort( np_samples[np.argsort(np_samples[:, 0:20].sum(axis=1))],  np_samples[np.argsort(np_samples[:, 20:40].sum(axis=1))],
+    #                            np_samples[np.argsort( np_samples[:, 40:60].sum(axis=1))])]
+    # plot_utils.create_heatmap(bar, 'Heatmap of Rearanged Samples 3', 'User ID', 'Item Id',
+    #                           'heatmap-samples-rearanged', experiment_path, dct_param)
+
+    # np_samples[np.lexsort((np_samples[:, 0:20], np_samples[:, 20:40], np_samples[:, 40:60]))]
+
+def plot_variance(model, experiment_path_test, experiment_path_train, dct_params):
+    np_var = np.exp(model.np_logvar_train)
+    df_sigma = pd.DataFrame(np_var)
+    ax =df_sigma.plot.line()
+    plt.ylabel('Variance')
+    plt.xlabel('Epochs')
+    plt.title('Variance of Latent Factors (Z)')
+    plt.show()
+    save_figure(ax.figure,experiment_path_test,'variance', dct_params)
 
 def plot_results(model, experiment_path_test, experiment_path_train, dct_params):
     plt.clf()
     plt.rcParams["text.usetex"] = False
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
-    # df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
+    df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
     # df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
     exp_path_img = experiment_path_test + "images/"
+    plot_samples(model, exp_path_img, dct_params)
+    plot_variance(model, exp_path_img, exp_path_img, dct_params)
 
     # Apply PCA on Data an plot it afterwards
-    # np_z_pca = apply_pca(model.np_z_test)
-    # plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
+    np_z_pca = apply_pca(model.np_z_test)
+    plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
 
     # plot_covariance_heatmap(model, exp_path_img, dct_params)
-    # plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
-    # polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
-
-    # df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ", model=model)
+    plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
+    polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+    #
+    df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ", model=model)
     # Plot the probability distribution of latent layer
 
     # plot_movies_combined_with_z(model, exp_path_img, dct_params)
-    # plot_parallel_lf(model)
-    # swarm_plot_melted(df_melted)
+    plot_parallel_lf(model, exp_path_img, dct_params)
+    swarm_plot_melted(df_melted, exp_path_img, dct_params)
 
-    # plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
-    # plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    # plot_swarmplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    # plot_violinplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-    # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
+    plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    plot_swarmplot(df_melted, "Z Values of all Latent Factors", exp_path_img,dct_params)
+    plot_violinplot(df_melted, "Z Values of all Latent Factors", exp_path_img,dct_params)
+    plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
-    # plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
-    # plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
-    # plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
+    plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
+    plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+    plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
     plot_kld_of_latent_factor(model, 'Mean of KLD by Latent Factor', exp_path_img, dct_params)
 
     # plot_3D_lf_z(model, '3D of Z-Values for LF', exp_path_img, dct_params)

@@ -108,7 +108,7 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
         zshot_errs[i, -1] = np.mean(zshot_errs[i, :-1]) if zshot else None
 
         # visualise
-        hinton(R, '$\mathbf{z}$', '$\mathbf{c}$', ax=axs, fontsize=18)
+        hinton(R, '$\mathbf{c}$', '$\mathbf{z}$', ax=axs, fontsize=18)
         # axs.set_title('{0}'.format(model_names[i]), fontsize=20)
 
     title = model_names[0]
@@ -248,5 +248,5 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
                            test_time,
                            save_plot,
                            n_models,
-                           n_z, m_codes, gts, zshot, ["Random Forest - " + model_names[0]], n_c, experiment_path, dct_params
+                           n_z, m_codes, gts, zshot, ["RF - " + model_names[0]], n_c, experiment_path, dct_params
                            )

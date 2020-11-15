@@ -133,9 +133,9 @@ class VAE(pl.LightningModule):
         self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=1200) #input
         self.fc12 = nn.Linear(in_features=1200, out_features=1200) #input
         self.fc13 = nn.Linear(in_features=1200, out_features=1200) #input
-        self.encoder = nn.Sequential(self.fc11,
-                                     self.fc12,
-                                     self.fc13
+        self.encoder = nn.Sequential(self.fc11, nn.ReLU(),
+                                     self.fc12, nn.ReLU(),
+                                     self.fc13, nn.ReLU(),
                                      )
 
         self.fc21 = nn.Linear(in_features=1200, out_features=self.no_latent_factors) #encoder mean
@@ -147,7 +147,11 @@ class VAE(pl.LightningModule):
         self.fc331 = nn.Linear(in_features=1200, out_features=1200)
 
         self.fc34 = nn.Linear(in_features=1200, out_features=self.input_dimension)
-        self.decoder = nn.Sequential(self.fc31, self.fc32, self.fc33,self.fc331, self.fc34)
+        self.decoder = nn.Sequential(self.fc31, nn.ReLU(),
+                                     self.fc32, nn.ReLU(),
+                                     self.fc33, nn.ReLU(),
+                                     self.fc331, nn.ReLU(),
+                                     self.fc34)
 
         self.KLD = None
         self.ls_kld = []
@@ -910,11 +914,13 @@ if __name__ == '__main__':
 
                 base_curated_test_path = "results/models/curated_vae/"
                 model_path = base_curated_test_path + "4_beta_10_epochs_10_lf_synt_True.ckpt"
-                model_path = base_curated_test_path + "4_beta_16_epochs_10_lf_synt_True.ckpt"
-                model_path = base_curated_test_path + "4_beta_4_epochs_10_lf_synt_True.ckpt"
+                # model_path = base_curated_test_path + "4_beta_16_epochs_10_lf_synt_True.ckpt"
+                # model_path = base_curated_test_path + "4_beta_4_epochs_10_lf_synt_True.ckpt"
+                # model_path = base_curated_test_path + "4_beta_20_epochs_10_lf_synt_True.ckpt"
                 attribute_path = base_curated_test_path + "4_beta_10_epochs_10_lf_synt_True_attributes.pickle"
-                attribute_path = base_curated_test_path + "4_beta_16_epochs_10_lf_synt_True_attributes.pickle"
-                attribute_path = base_curated_test_path + "4_beta_4_epochs_10_lf_synt_True_attributes.pickle"
+                # attribute_path = base_curated_test_path + "4_beta_16_epochs_10_lf_synt_True_attributes.pickle"
+                # attribute_path = base_curated_test_path + "4_beta_4_epochs_10_lf_synt_True_attributes.pickle"
+                # attribute_path = base_curated_test_path + "4_beta_20_epochs_10_lf_synt_True_attributes.pickle"
 
                 test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
                 # test_model.test_size = model_params['test_size']

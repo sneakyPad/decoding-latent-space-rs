@@ -205,7 +205,7 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path, contino
     dct_data = {'genres': genres, 'year': year, 'stars': stars, 'rating': rating}
     dct_base_data = {key: dct_data[key] for key in ls_attributes}
 
-    n_users = 600*100
+    n_users = 600*30
     n_movies = len(ls_attributes * no_samples)
     np_user_item = np.zeros((n_users,n_movies),dtype="float32")
 
