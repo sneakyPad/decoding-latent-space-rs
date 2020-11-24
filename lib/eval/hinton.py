@@ -29,7 +29,7 @@ class SquareCollection(collections.RegularPolyCollection):
 
 
 def hinton(inarray, x_label=None, y_label=None, max_value=None, use_default_ticks=True, 
-           ax=None, fontsize=14):
+           ax=None, fontsize=14, ls_own_colours=None, background_color=None):
     """Plot Hinton diagram for visualizing the values of a 2D array.
 
     Plot representation of an array with positive and negative values
@@ -57,7 +57,11 @@ def hinton(inarray, x_label=None, y_label=None, max_value=None, use_default_tick
     """
 
     ax = ax if ax is not None else plt.gca()
-    ax.set_facecolor('gray')
+    if background_color is None:
+        ax.set_facecolor('gray')
+    else:
+        ax.set_facecolor(background_color)
+
     # make sure we're working with a numpy array, not a numpy matrix
     inarray = np.asarray(inarray)
     height, width = inarray.shape
@@ -68,7 +72,10 @@ def hinton(inarray, x_label=None, y_label=None, max_value=None, use_default_tick
 
     pos = np.where(values > 0)
     neg = np.where(values < 0)
-    for idx, color in zip([pos, neg], ['white', 'black']):
+    square_colors = ['white', 'black']
+    if ls_own_colours is not None:
+        square_colors = ls_own_colours
+    for idx, color in zip([pos, neg], square_colors):
         if len(idx[0]) > 0:
             xy = list(zip(cols[idx], rows[idx]))
             circle_areas = np.pi / 2 * np.abs(values[idx])
@@ -91,7 +98,7 @@ def hinton(inarray, x_label=None, y_label=None, max_value=None, use_default_tick
     if x_label is not None:
         ax.set_xlabel(x_label, fontsize=fontsize)
     if y_label is not None:
-        ax.set_ylabel(y_label, fontsize=fontsize)
+        ax.set_ylabel(y_label,fontsize=fontsize)
 
     if use_default_ticks:
         ax.xaxis.set_major_locator(IndexLocator())
@@ -106,8 +113,9 @@ class IndexLocator(ticker.Locator):
     def __call__(self):
         """Return the locations of the ticks."""
         dmin, dmax = self.axis.get_data_interval()
+        last_element_offset = 1
         if dmax < self.max_ticks:
             step = 1
         else:
             step = np.ceil(dmax / self.max_ticks)
-        return self.raise_if_exceeds(np.arange(0, dmax, step))
+        return self.raise_if_exceeds(np.arange(0, dmax + last_element_offset, step))

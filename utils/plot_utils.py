@@ -248,8 +248,9 @@ def plot_pairplot_lf_z(model, title, experiment_path, dct_params):
         for idx, name in enumerate(ls_gen_facs):
             df_z_matrix[name] = model.test_y[:, idx]
 
-        df_z_matrix = df_z_matrix.melt(id_vars=ls_gen_facs,value_vars=lf_cols, var_name='lf',
-                                     value_name='values')  # Transforms it to: _| cols | vals|
+        df_z_matrix = df_z_matrix.drop(['y_scale', 'y_white', 'y_scale', 'y_orientation', 'y_posX', 'y_posY'], axis=1)
+        # df_z_matrix = df_z_matrix.melt(id_vars=ls_gen_facs,value_vars=lf_cols, var_name='lf',
+        #                              value_name='values')  # Transforms it to: _| cols | vals|
 
     # elif(model.used_data =='morpho'):
     #     df_z_matrix['y'] = model.test_y
@@ -257,14 +258,19 @@ def plot_pairplot_lf_z(model, title, experiment_path, dct_params):
         df_z_matrix['y'] = model.test_y
 
         # raise NotImplementedError
+    with sns.plotting_context("notebook", font_scale=2.5):
+        if(model.used_data == 'dsprites'):
+            df = df_z_matrix.sample(frac=1, random_state=42).reset_index(drop=True)[:1000]
+            fig = sns.pairplot(df, corner=True, aspect=1.65, hue='y_shape').fig
+        else:
+            fig = sns.pairplot(df_z_matrix, corner=True, aspect=1.65, hue='y').fig
 
-    fig = sns.pairplot(df_z_matrix, corner=True, aspect=1.65, hue='y').fig
-
-    fig.suptitle(title)
-    # plt.title(title, fontsize=17, y=1.08)
-    plt.tight_layout()
-    save_figure(fig, experiment_path, 'lf-correlation-z', dct_params)
-    plt.show()
+        fig.suptitle(title)
+        # plt.title(title, fontsize=17, y=1.08)
+        plt.tight_layout()
+        # plt.setp(fig._legend.get_title(), fontsize=20)
+        save_figure(fig, experiment_path, 'lf-correlation-z', dct_params)
+        plt.show()
 
 
 def plot_3D_lf_z(model, title, experiment_path, dct_params):
@@ -489,6 +495,17 @@ def plot_covariance_heatmap(model, exp_img_path, dct_params):
 def plot_samples(test_model, experiment_path, dct_param):
     ls_samples = []
     z = torch.randn(15, test_model.no_latent_factors)
+    # z = torch.randn(1, test_model.no_latent_factors)
+    # ls_tensor_values = []
+    # for i in range(0,3,0.2):
+    #     ls_tensor_values.append([0, 0, 0, 0, 0, 0, 0, i, 0, 0])
+    #
+    # np_fo = np.asarray(ls_tensor_values)
+    # p  = torch.tensor(np_fo).float()
+    # # p = torch.tensor([[0, 0, 0, 0, 0, 0, 0, i, 0, 0]]).float()
+    # np_samples = test_model.decode(p).detach().numpy()
+
+
     sample = test_model.decode(z)
     np_samples = sample.detach().numpy()
     create_heatmap(np_samples, 'Heatmap of Samples', 'User ID', 'Item ID',
@@ -539,19 +556,21 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
     plt.rcParams["text.usetex"] = False
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
-    df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
+    # df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
     # df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
     exp_path_img = experiment_path_test + "images/"
     plot_samples(model, exp_path_img, dct_params)
-    plot_variance(model, exp_path_img, exp_path_img, dct_params)
 
     # Apply PCA on Data an plot it afterwards
     np_z_pca = apply_pca(model.np_z_test)
     plot_2d_pca(np_z_pca, "PCA applied on Latent Factors w/ dim: " + str(model.no_latent_factors), exp_path_img,dct_params)
 
     # plot_covariance_heatmap(model, exp_path_img, dct_params)
-    plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
-    polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+    plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
+
+    if(model.used_data is not 'dsprites'):
+        plot_gen_factors2latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
+    # polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
     #
     df_melted = ls_columns_to_dfrows(ls_val=model.np_z_test, column_base_name="LF: ", model=model)
     # Plot the probability distribution of latent layer
@@ -561,17 +580,19 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
     swarm_plot_melted(df_melted, exp_path_img, dct_params)
 
     plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
-    plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
+    # plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
     plot_swarmplot(df_melted, "Z Values of all Latent Factors", exp_path_img,dct_params)
     plot_violinplot(df_melted, "Z Values of all Latent Factors", exp_path_img,dct_params)
-    plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+    # plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
     # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,
-    plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
-    plot_pairplot_lf_z(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
-    plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
-    plot_kld_of_latent_factor(model, 'Mean of KLD by Latent Factor', exp_path_img, dct_params)
+
+    if(model.used_data == 'vae'):
+        plot_variance(model, exp_path_img, exp_path_img, dct_params)
+        plot_KLD(model.ls_kld, 'KLD over Epochs (Training)', exp_path_img, dct_params)
+        plot_pairplot_lf_kld(model, 'Correlation of Latent Factors for KLD', exp_path_img, dct_params)
+        plot_kld_of_latent_factor(model, 'Mean of KLD by Latent Factor', exp_path_img, dct_params)
 
     # plot_3D_lf_z(model, '3D of Z-Values for LF', exp_path_img, dct_params)
 

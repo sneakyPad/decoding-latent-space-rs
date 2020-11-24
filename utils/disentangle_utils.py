@@ -33,7 +33,7 @@ def normalize_datasets(datasets, zshot):
     return datasets
 
 
-def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_time=False, save_plot=False, n_models=1, n_z=0, m_codes=None, gts = None, zshot=False, model_names = None, n_c=None, experiment_path = None, exp_params=None):#fig_dir
+def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_time=False, save_plot=False, n_models=1, n_z=0, m_codes=None, gts = None, zshot=False, model_names = None, n_c=None, experiment_path = None, exp_params=None, used_data = None):#fig_dir
     # lists to store scores
     m_disent_scores = [] * n_models
     m_complete_scores = [] * n_models
@@ -108,7 +108,11 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
         zshot_errs[i, -1] = np.mean(zshot_errs[i, :-1]) if zshot else None
 
         # visualise
-        hinton(R, '$\mathbf{c}$', '$\mathbf{z}$', ax=axs, fontsize=18)
+        colours = ['#efab00', 'black']#'dba45b',
+        backcolor = '#616161'
+        #$\text{\rotatebox[origin=c]{-90}
+        hinton(R, '$\mathbf{c}$', '$\mathbf{z}$', ax=axs,
+               fontsize=18, ls_own_colours = colours, background_color=backcolor)
         # axs.set_title('{0}'.format(model_names[i]), fontsize=20)
 
     title = model_names[0]
@@ -131,6 +135,8 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
     plt.title(title, fontsize=17, y=1.08)
     if save_plot:
         fig.tight_layout()
+        exp_params['used_data'] = used_data
+
         plot_utils.save_figure(fig, experiment_path + 'images/', "hint_{0}".format(regressor.__name__),
                                dct_params=exp_params)
         plot_utils.save_figure(fig, '../models/results/disentanglement-imgs/',
@@ -166,7 +172,7 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
     for n in exp_names:
         try:
             # m_codes.append(np.load(os.path.join(codes_dir, n + '.npy')))
-            m_codes.append(np_z_test)
+            m_codes.append(np_z_test[:5000])
         except IOError:
             # .npz, e.g. pca with keys: codes, explained_variance
             m_codes.append(np.load(os.path.join(codes_dir, n + '.npz'))['codes'])
@@ -174,8 +180,8 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
     # load targets (ground truths)
     # gts = np.load(os.path.join(data_dir, 'teapots.npz'))['gts']
 
-    gts = test_y
-    n_samples = len(test_y)
+    gts = test_y[:5000]
+    n_samples = len(gts)
     n_train, n_dev, n_test = int(train_fract * n_samples), int(dev_fract * n_samples), int(test_fract * n_samples)
     if(test_model.used_data == 'dsprites'):
         gts = gts[:, 2:]  # remove generative factor 'white' and 'shape'
@@ -223,13 +229,14 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
                            test_time,
                            save_plot,
                            n_models,
-                           n_z, m_codes,gts, zshot, ["Lasso - " +model_names[0]], n_c, experiment_path, dct_params)#figs_dir
+                           n_z, m_codes,gts, zshot, ["Lasso - " +model_names[0]], n_c, experiment_path, dct_params, test_model.used_data)#figs_dir
 
     ##Train Random Forest
     from sklearn.ensemble.forest import RandomForestRegressor
 
     n_estimators = 10
-    all_best_depths = [[12, 10, 3, 3, 3, 12, 10, 3 , 3, 3]]#Original: [12, 10, 3, 3, 3]
+    all_best_depths = [[2, 1, 3, 3, 3, 2, 1, 3 , 3, 3]]#Original: [12, 10, 3, 3, 3]
+    # all_best_depths = [[12, 10, 3, 3, 3, 12, 10, 3 , 3, 3]]#Original: [12, 10, 3, 3, 3]
 
     # populate params dict with best_depths per model per target (z gt)
     params = [[]] * n_models
@@ -248,5 +255,5 @@ def run_disentanglement_eval(test_model, experiment_path, dct_params):
                            test_time,
                            save_plot,
                            n_models,
-                           n_z, m_codes, gts, zshot, ["RF - " + model_names[0]], n_c, experiment_path, dct_params
+                           n_z, m_codes, gts, zshot, ["RF - " + model_names[0]], n_c, experiment_path, dct_params,  test_model.used_data
                            )

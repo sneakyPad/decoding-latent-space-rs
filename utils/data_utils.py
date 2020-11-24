@@ -180,14 +180,14 @@ def create_synthetic_3d_data(no_generative_factors, experiment_path):
     print("Shape of User-Item Matrix:{}".format(np_user_item.shape))
     return np_user_item, ls_y
 
-def create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item, continous_data, normalvariate):
+def create_synthetic_data(no_generative_factors, experiment_path, expanded_user_item, continous_data, normalvariate, noise):
     if(expanded_user_item):
         # return create_synthetic_3d_data()
         return create_synthetic_data_nd(no_generative_factors, experiment_path)
 
-    return create_synthetic_data_simple(no_generative_factors, experiment_path, continous_data, normalvariate)
+    return create_synthetic_data_simple(no_generative_factors, experiment_path, continous_data, normalvariate, noise)
 
-def create_synthetic_data_simple(no_generative_factors, experiment_path, continous_data, normalvariate):
+def create_synthetic_data_simple(no_generative_factors, experiment_path, continous_data, normalvariate, noise):
 
     no_samples = 20
     genres = ['Crime', 'Mystery', 'Thriller', 'Action', 'Drama']#, 'Romance','Comedy', 'War','Adventure', 'Family'
@@ -235,8 +235,15 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path, contino
     ls_y = []
     no_users_with_same_preference = int(n_users / len(ls_attributes))
     for i in range(0, len(ls_attributes)):
-        end = (i+1) * no_samples -1
-        start = i * no_samples
+        if(noise):
+            noise_val = 5
+            end = (i+1) * no_samples -1
+            end = min(n_movies, end + noise_val )
+            start = i * no_samples
+            start = max(0, start - noise_val)
+        else:
+            end = (i + 1) * no_samples - 1
+            start = i * no_samples
         sr_ids = df_synthentic_data.loc[start:end]['id']
         attribute = ls_attributes[i]
         #
@@ -254,7 +261,8 @@ def create_synthetic_data_simple(no_generative_factors, experiment_path, contino
                 seen = random.sample(list(sr_ids.values), k=no_of_seen_items)
             user_idx = i * no_users_with_same_preference + idx
             if(continous_data):
-                np_user_item[user_idx,seen] = 1* random.uniform(0,0.33)*i
+                # np_user_item[user_idx,seen] = 1* random.uniform(0,0.33)*i #This creates ranges of 0-1/3, 1/3-2/3,2/3-1
+                np_user_item[user_idx,seen] = random.uniform(0.33, 1)#*i
             else:
                 np_user_item[user_idx,seen] = 1
             ls_y.append(attribute)
