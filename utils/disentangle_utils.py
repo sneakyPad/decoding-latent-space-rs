@@ -112,7 +112,7 @@ def fit_visualise_quantify(regressor, params, err_fn, importances_attr, test_tim
         backcolor = '#616161'
         #$\text{\rotatebox[origin=c]{-90}
         hinton(R, '$\mathbf{c}$', '$\mathbf{z}$', ax=axs,
-               fontsize=18, ls_own_colours = colours, background_color=backcolor)
+               fontsize=34, ls_own_colours = colours, background_color=backcolor)
         # axs.set_title('{0}'.format(model_names[i]), fontsize=20)
 
     title = model_names[0]

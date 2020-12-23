@@ -129,20 +129,20 @@ class VAE(pl.LightningModule):
 
 
 
-        self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=self.no_latent_factors)  # input
+        self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=40)  # input
 
         self.fc12 = nn.Linear(in_features=40, out_features=self.no_latent_factors)  # input
         # self.fc13 = nn.Linear(in_features=1000, out_features=600)  # input
-        self.encoder = nn.Sequential(self.fc11  ,# nn.ReLU(),
-                                     #self.fc12#, nn.LeakyReLU()
+        self.encoder = nn.Sequential(self.fc11  ,nn.LeakyReLU(),# nn.ReLU(),
+                                     self.fc12#, nn.LeakyReLU()
                                      # self.fc13, nn.LeakyReLU()
                                      )
 
         self.fc31 = nn.Linear(in_features=self.no_latent_factors, out_features=40)
         # self.fc32 = nn.Linear(in_features=600, out_features=1000)
         # self.fc33 = nn.Linear(in_features=1000, out_features=1200)
-        self.fc34 = nn.Linear(in_features=self.no_latent_factors, out_features=self.input_dimension)
-        self.decoder = nn.Sequential(#self.fc31, nn.ReLU(),
+        self.fc34 = nn.Linear(in_features=40, out_features=self.input_dimension)
+        self.decoder = nn.Sequential(self.fc31, nn.LeakyReLU(),
                                      # self.fc32, nn.LeakyReLU(),
                                      # self.fc33, nn.ReLU(),
                                      self.fc34)
@@ -565,7 +565,8 @@ def traverse(test_model, experiment_path, dct_param):
         ls_tensor_values = []
 
         for i in range(-35, 35, 2):
-            z = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            z = [0 for i in range(0,test_model.no_latent_factors)]
+            # z = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             ls_y.append(i / 10)
             z[idx] = i / 10
             ls_tensor_values.append(z)
@@ -598,29 +599,33 @@ def traverse(test_model, experiment_path, dct_param):
                               'heatmap-samples', experiment_path, dct_param)
 
 if __name__ == '__main__':
+    #Architecture Parameters
     torch.manual_seed(100)
     args = training_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # use gpu if available
     settings.init()
-    # %%
+
+    # General Parameters
     train = True
-    synthetic_data = True
-    expanded_user_item = False
     mixup = False
     is_hessian_penalty_activated = False
-    # continous_data = False
-    # normalvariate = False
-    ls_normalvariate = [False]
-    ls_continous = [True]
     base_path = 'results/models/vae/'
     used_data = 'syn'
     full_test_routine = False
+
+    #Synthetic Data Parameters
+    synthetic_data = True
+    expanded_user_item = False
+    ls_normalvariate = [False]
+    ls_continous = [True]
+
+
     noise = False
     no_generative_factors = 3
     # used_data ='vae'
     used_data = 'ae'
 
-    ls_epochs = [51]  # -->7 #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
+    ls_epochs = [21]  # -->7 #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
     # Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]

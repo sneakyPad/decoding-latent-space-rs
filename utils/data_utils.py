@@ -310,7 +310,8 @@ def pivot_create_user_item_matrix(df: pd.DataFrame, simplified_rating: bool):
 
     if(simplified_rating):
         df['rating'] = 1
-
+    else:
+        df['rating'] = df['rating']/5
     df_user_item = df.pivot(index="userId", columns="movieId", values="rating")
     df_user_item = df_user_item.fillna(0)
     ##Create Mapping

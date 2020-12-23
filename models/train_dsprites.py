@@ -215,7 +215,7 @@ class VAE(pl.LightningModule):
 
     def decode(self, z):
         # return torch.bernoulli(self.decoder(z))
-        return torch.sigmoid(self.decoder(z))
+        return torch.bernoulli(torch.sigmoid(self.decoder(z)))
 
     def compute_z(self, mu, logvar):
         z = self.reparameterize(mu, logvar)
@@ -374,7 +374,7 @@ class VAE(pl.LightningModule):
             # mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
             # self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
-        batch_mse, batch_kld = self.loss_function(recon_batch,
+        batch_mse, batch_kld = self.loss_function(recon_batch.view(-1, 64*64),
                                                   ts_batch_user_features, #ts_batch_user_features,
                                                   ts_mu_chunk,
                                                   ts_logvar_chunk,
@@ -568,7 +568,7 @@ class VAE(pl.LightningModule):
 
 
         # MSE = F.binary_cross_entropy(recon_x, x,reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
-        MSE = F.mse_loss(recon_x, x,reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
+        MSE = F.binary_cross_entropy(recon_x, torch.bernoulli(x),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
 
         kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
         kld_mean = -0.5 * torch.mean(
@@ -813,7 +813,7 @@ if __name__ == '__main__':
 
 
     #%%
-    train = True
+    train = False
     synthetic_data = True
     expanded_user_item = False
     mixup = False
@@ -825,7 +825,7 @@ if __name__ == '__main__':
     used_data = "dsprites"
     base_path = 'results/models/vae/'
 
-    ls_epochs = [10]#5 with new data, 70 was trained w/ old mnist
+    ls_epochs = [70]#5 with new data, 70 was trained w/ old mnist
     #Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]
@@ -879,7 +879,8 @@ if __name__ == '__main__':
                                                                                                                  experiment_path,
                                                                                                                  expanded_user_item,
                                                                                                                  continous_data,
-                                                                                                                 normalvariate)
+                                                                                                                 normalvariate,
+                                                                                                                 False)
                         generate_distribution_df()
 
                     model = VAE(model_params)
@@ -933,10 +934,10 @@ if __name__ == '__main__':
 
                 dct_param ={'epochs':epoch, 'lf':lf,'beta':beta}
 
-                plot_utils.plot_results(test_model,
-                                   test_model.experiment_path_test,
-                                   test_model.experiment_path_train,
-                                   dct_param )
+                # plot_utils.plot_results(test_model,
+                #                    test_model.experiment_path_test,
+                #                    test_model.experiment_path_train,
+                #                    dct_param )
 
                 disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
 

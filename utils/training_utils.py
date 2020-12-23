@@ -20,9 +20,9 @@ def create_training_args():
 
 
 def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_threshold, expanded_user_item, mixup,
-                        no_generative_factors, max_epochs, is_hessian_penalty_activated, used_data=None):
+                        no_generative_factors, max_epochs, is_hessian_penalty_activated, used_data=None, small_movie_dataset=True):
     model_params = {"simplified_rating": True,
-                    "small_dataset": True,
+                    "small_dataset": small_movie_dataset,
                     "test_size": 0.05,  # TODO Change test size to 0.33
                     "latent_dim": 3,
                     "beta": 1,
@@ -31,6 +31,10 @@ def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_thre
     # model_params.update(args.__dict__)
     # print(**model_params)
 
+    if(small_movie_dataset):
+        model_params['test_size'] = 0.3
+    else:
+        model_params['test_size'] = 0.2
     # merged_params = (lambda first_dict, second_dict: {**first_dict, **second_dict})(args.__dict__,model_params)
     # print(merged_params)
 
@@ -38,7 +42,7 @@ def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_thre
     model_params['max_epochs'] = epoch
     model_params['latent_dim'] = lf
     model_params['beta'] = beta
-    # model_params['synthetic_data'] = None
+    model_params['synthetic_data'] = None
     model_params['sigmoid_annealing_threshold'] = sigmoid_annealing_threshold
     model_params['expanded_user_item'] = expanded_user_item
     model_params['mixup'] = mixup

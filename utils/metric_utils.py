@@ -117,6 +117,27 @@ def calculate_normalized_entropy(population):
 
     return H_n
 
+def information_gain_single(m_sample, dct_population):
+    ls_population_rf = [val for key, val in dct_population.items()]
+    population_entropy = calculate_normalized_entropy(ls_population_rf)
+    print('RF sample:{}'.format(m_sample))
+    print('Population entropy: {}'.format(population_entropy))
+
+    if(type(m_sample) is not list):
+        m_sample = [m_sample]
+
+    m_entropy = calculate_normalized_entropy(m_sample)
+    print('Entropy sample:{}'.format(m_entropy))
+
+
+    ig_m_sample = population_entropy - m_entropy
+    print('IG sample:{} '.format(ig_m_sample))
+
+
+    return ig_m_sample
+
+
+
 def information_gain(m, m_hat, dct_population):
     ls_population_rf = [val for key, val in dct_population.items()]
     population_entropy = calculate_normalized_entropy(ls_population_rf)
@@ -145,7 +166,67 @@ def information_gain(m, m_hat, dct_population):
     else:
         settings.ig_m_cnt += 1
     # print('IG Difference:{}\n{}\n'.format(ig_m_hat - ig_m, '-'*80))
-    return ig_m_hat - ig_m
+    return  ig_m -ig_m_hat
+
+def single_information_gain(y_hat_sampled, dct_attribute_distribution):
+    # dct_dist = pickle.load(movies_distribution)
+
+    dct_ig = defaultdict(float)
+    for idx_vector in range(y_hat_sampled.shape[0]):
+        for attribute in y_hat_sampled:
+            print('Attribute:{}'.format(attribute))
+            if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline','id']):
+                #Get attribute
+                ls_y_attribute_val = utils.my_eval(y_hat_sampled.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
+
+                mean = 0
+                cnt_same = 0
+                mce=0
+                m_hat = 0
+                m = 0
+
+                try:
+                    #Two cases: Either cell contains multiple values, than it is a list
+                    #or it contains a single but not in a list. In that case put it in a list
+                    if(type(ls_y_attribute_val) is not list):
+                        ls_y_attribute_val =[ls_y_attribute_val]
+
+                    if (len(ls_y_attribute_val) == 0):
+                        break
+
+                    ls_m_hat_rf=[]
+                    #Go through elements of a cell
+                    for value in ls_y_attribute_val: #same as characteristic
+                            y_hat_sample_attribute_relative_frequency = dct_attribute_distribution[attribute]['relative'][str(value)]
+                            m_hat += y_hat_sample_attribute_relative_frequency
+                            ls_m_hat_rf.append(y_hat_sample_attribute_relative_frequency)
+                            # print('\t Value: {}, Relative frequency:{}'.format(value, relative_frequency))
+                    #if no values are presented in the current cell than assign highest error
+                    if(len(ls_y_attribute_val)==0):
+                        # mce =15
+                        #TODO sth else than just break, maybe mce = -1?
+                        break
+                    else:
+                        #rf = relative frequency
+                        dct_population = dct_attribute_distribution[attribute]['relative']
+
+                        ls_y_hat_rf = [dct_population[str(val)] for val in ls_y_attribute_val]
+                        m = np.asarray(ls_y_hat_rf).mean()
+                        m_hat = m_hat/len(ls_y_attribute_val)
+
+                        ig = information_gain_single(ls_y_hat_rf, dct_population)
+                        # mce = shannon_inf_score(m, m_hat)
+
+                    prev_ig = dct_ig.get(attribute)
+                    if (prev_ig):
+                        dct_ig[attribute] = (prev_ig + ig) / 2
+                    else:
+                        dct_ig[attribute] = ig
+                except (KeyError, TypeError, ZeroDivisionError) as e:
+                    print("Error Value:{}".format(value))
+
+    return dct_ig
+
 
 def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
     # dct_dist = pickle.load(movies_distribution)
@@ -155,6 +236,7 @@ def mce_information_gain(y_hat, y_hat_latent, dct_attribute_distribution):
         for attribute in y_hat:
             # print('Attribute:{}'.format(attribute))
             if(attribute not in ['Unnamed: 0', 'unnamed_0', 'plot_outline','id']):
+                #Get attribute
                 ls_y_attribute_val = utils.my_eval(y_hat.iloc[idx_vector][attribute]) #e.g. Stars: ['Pitt', 'Damon', 'Jolie']
                 ls_y_latent_attribute_val = utils.my_eval(y_hat_latent.iloc[idx_vector][attribute]) #e.g Stars: ['Depp', 'Jolie']
                 # print('Attribute Values to compapre:{} - {}'.format(ls_y_attribute_val, ls_y_latent_attribute_val))

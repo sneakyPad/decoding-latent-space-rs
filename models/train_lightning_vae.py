@@ -84,7 +84,6 @@ class VAE(pl.LightningModule):
         self.generative_factors = self.hparams["generative_factors"]
         self.mixup = self.hparams["mixup"]
         self.np_synthetic_data = self.hparams["synthetic_data"]
-        self.ls_syn_y = self.hparams["syn_y"]
         self.experiment_path_train = conf["experiment_path"]
         self.experiment_path_test = self.experiment_path_train
         self.beta = self.hparams["beta"]
@@ -107,10 +106,14 @@ class VAE(pl.LightningModule):
         if(self.np_synthetic_data is None):
             self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
             self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
+            self.df_links = pd.read_csv('../data/movielens/small/links.csv')
             self.dct_attribute_distribution = utils.load_json_as_dict(
                 'attribute_distribution.json')  # load relative frequency distributioon from dictionary (pickle it)
 
         else:
+            self.ls_syn_y = self.hparams["syn_y"]
+            self.df_links = pd.read_csv('../data/movielens/small/links.csv')
+            self.test_size = 0.05
             self.train_dataset, self.test_dataset = train_test_split(self.np_synthetic_data, test_size=self.test_size, random_state=42)
             self.train_y, self.test_y = train_test_split(self.ls_syn_y, test_size=self.test_size, random_state=42)
             self.test_y_bin = np.asarray(pd.get_dummies(pd.DataFrame(data=self.test_y)))
@@ -122,18 +125,6 @@ class VAE(pl.LightningModule):
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
         self.input_dimension = int(self.unique_movies *math.pow(4, self.generative_factors)) if self.expanded_user_item == True else self.unique_movies
 
-
-        # self.fc1 = nn.Linear(in_features=self.input_dimension, out_features=400) #input
-        # self.fc11 = nn.Linear(in_features=400, out_features=100) #input
-        # self.encoder = nn.Sequential(self.fc1, self.fc11)
-        #
-        # self.fc21 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder mean
-        # self.fc22 = nn.Linear(in_features=100, out_features=self.no_latent_factors) #encoder variance
-        # self.fc3 = nn.Linear(in_features=self.no_latent_factors, out_features=100) #hidden layer, z
-        #
-        # self.fc41 = nn.Linear(in_features=100, out_features=400)
-        # self.fc42 = nn.Linear(in_features=400, out_features=self.input_dimension)
-        # self.decoder = nn.Sequential(self.fc41, self.fc42)
 
         self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=200)  # input
         # self.fc12 = nn.Linear(in_features=600, out_features=300)  # input
@@ -157,10 +148,12 @@ class VAE(pl.LightningModule):
 
         self.KLD = None
         self.ls_kld = []
+        self.ls_kld_test = []
         self.dis_KLD = None
 
         self.z = None
-        self.kld_matrix = np.empty((0, self.no_latent_factors))
+        self.kld_matrix_train = np.empty((0, self.no_latent_factors))
+        self.kld_matrix_test = np.empty((0, self.no_latent_factors))
         self.np_z_test = np.empty((0, self.no_latent_factors))#self.test_dataset.shape[0]
         self.np_mu_test = np.empty((0, self.no_latent_factors))
         self.np_logvar_test = np.empty((0, self.no_latent_factors))
@@ -168,10 +161,11 @@ class VAE(pl.LightningModule):
         self.np_z_train = np.empty((0, self.no_latent_factors))  # self.test_dataset.shape[0]
         self.np_mu_train = np.empty((0, self.no_latent_factors))
         self.np_logvar_train = np.empty((0, self.no_latent_factors))
+        self.np_var_train = np.empty((0, self.no_latent_factors))
+        self.np_var_test = np.empty((0, self.no_latent_factors))
 
         # self.dct_attribute_distribution = None # load relative frequency distributioon from dictionary (pickle it)
 
-        # self.df_links = pd.read_csv('../data/movielens/small/links.csv')
         self.sigmoid_annealing_threshold = self.hparams['sigmoid_annealing_threshold']
         self.mce_batch_train = None
         self.mce_batch_test = None
@@ -207,6 +201,11 @@ class VAE(pl.LightningModule):
         eps = torch.randn_like(std)
         return mu + eps * std
 
+    def reparameterize_wo_eps(self, mu, logvar):
+        std = torch.exp(logvar)
+        eps = torch.randn_like(std)
+        return mu + std
+
     def decode(self, z):
         return torch.sigmoid(self.decoder(z))
 
@@ -214,6 +213,7 @@ class VAE(pl.LightningModule):
 
         z = self.reparameterize(mu, logvar)
         return z
+
 
     def sample(self, mu, log_var):
         # if (self.training):
@@ -235,10 +235,11 @@ class VAE(pl.LightningModule):
         else:
             mu, logvar = self.encode(x) #40960/512 (Batchsize) results in 512,80
 
-
+            z = self.reparameterize(mu,logvar)
             # z = self.compute_z(mu, logvar)
-            p, q, z = self.sample(mu, logvar)
             self.z = z
+            p, q, _z = self.sample(mu, logvar)
+
 
         return self.decode(z), mu, logvar, p, q
 
@@ -256,10 +257,11 @@ class VAE(pl.LightningModule):
 
         else:
             print("Load large dataset of ratings.csv")
-            df_ratings = pd.read_csv("../data/movielens/large/ratings.csv")
+            df_ratings = pd.read_csv("../data/movielens/large/ml-25m/ratings.csv")
+            df_ratings = df_ratings.iloc[:300000]
 
         print('Shape of dataset:{}'.format(df_ratings.shape))
-        self.np_user_item, self.unique_movies, self.max_unique_movies, self.dct_index2itemId = data_utils.pivot_create_user_item_matrix(df_ratings,True)#manual_create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
+        self.np_user_item, self.unique_movies, self.max_unique_movies, self.dct_index2itemId = data_utils.pivot_create_user_item_matrix(df_ratings,False)#manual_create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
         # self.np_user_item, self.max_unique_movies = manual_create_user_item_matrix(df_ratings, simplified_rating=self.simplified_rating)
         self.train_dataset, self.test_dataset = train_test_split(self.np_user_item, test_size=self.test_size, random_state=42)
 
@@ -272,7 +274,7 @@ class VAE(pl.LightningModule):
 
     def test_dataloader(self):
         test_loader = torch.utils.data.DataLoader(
-            self.test_dataset, batch_size=100, shuffle=False, num_workers=0
+            self.test_dataset, batch_size=10, shuffle=False, num_workers=0
         )
         return test_loader
 
@@ -408,8 +410,8 @@ class VAE(pl.LightningModule):
                 'MSE-Train': batch_mse,
                             } #
         return {'loss': batch_loss, 'log': tensorboard_logs,
-                'var': np.exp(np.asarray(ts_mu_chunk.tolist())),
-                'logvar': np.asarray(ts_mu_chunk.tolist()).mean(axis=0),
+                'var': np.exp(np.asarray(ts_logvar_chunk.tolist())).mean(axis=0),
+                'logvar': np.asarray(ts_logvar_chunk.tolist()).mean(axis=0),
                 'mu':np.asarray(ts_mu_chunk.tolist()).mean(axis=0)}
 
 
@@ -417,11 +419,12 @@ class VAE(pl.LightningModule):
         print("Saving MCE before KLD is applied...")
 
         avg_logvar = np.array([x['logvar'] for x in outputs]).mean(axis=0)
-        # avg_var = np.array([x['var'] for x in outputs]).mean(axis=0)
+        avg_var = np.array([x['var'] for x in outputs]).mean(axis=0)
         avg_mu = np.array([x['mu'] for x in outputs]).mean(axis=0)
 
 
         self.np_logvar_train = np.append(self.np_logvar_train, [avg_logvar],axis=0)
+        self.np_var_train = np.append(self.np_var_train, [avg_var],axis=0)
         self.np_mu_train = np.append(self.np_mu_train, [avg_mu],axis=0)
 
 
@@ -448,6 +451,7 @@ class VAE(pl.LightningModule):
 
         recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
+        # ls_z = self.reparameterize_wo_eps(ts_mu_chunk, ts_logvar_chunk)
 
         self.ls_predicted_movies.extend((-recon_batch).argsort()[:,0].tolist())
 
@@ -466,18 +470,21 @@ class VAE(pl.LightningModule):
                                             self.unique_movies,
                                             p,
                                             q,
-                                            new_kld_function=False)
+                                            new_kld_function=False,
+                                            train=False)
         #normalizing reconstruction loss
         batch_mse = batch_mse/len(ts_batch_user_features)
         batch_loss = batch_mse + kld
 
-        mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
+        mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=1)
         self.mce_batch_test = self.average_mce_batch(self.mce_batch_test, mce_minibatch)
 
-        #to be rermoved mean_mce = { for single_mce in batch_mce}
+
         loss = batch_loss.item() / len(ts_batch_user_features)
 
-        # bce = batch_bce/len(ts_batch_user_features)
+        self.ls_kld_test.append(self.KLD.tolist())
+
+
         tensorboard_logs = {'KLD-Test': kld,
                             'MSE-test': batch_mse}
 
@@ -487,8 +494,10 @@ class VAE(pl.LightningModule):
                 'rmse_w_zeros': batch_rmse_w_zeros,
                 'mse_w_zeros': batch_mse_w_zeros,
                 'log':tensorboard_logs,
+                'var': np.exp(np.asarray(ts_logvar_chunk.tolist())).mean(axis=0),
+                'mean': np.asarray(ts_mu_chunk.tolist()).mean(axis=0),
                 'KLD-Test': kld,
-                            'MSE-Test': batch_mse
+                  'MSE-Test': batch_mse
                 }
 
         # test_loss /= len(test_loader.dataset)
@@ -510,6 +519,10 @@ class VAE(pl.LightningModule):
         avg_loss = np.array([x['test_loss'] for x in outputs]).mean()
         mse_test = np.array([x['MSE-Test'] for x in outputs])
         kld_test =np.array([x['KLD-Test'] for x in outputs])
+        avg_var = np.array([x['var'] for x in outputs]).mean(axis=0)
+        avg_mean = np.array([x['mean'] for x in outputs]).mean(axis=0)
+        self.np_var_test = np.append(self.np_var_test, [avg_var], axis=0)
+
         # ls_mce = {x['mce'] for x in outputs}
         # utils.save_dict_as_json(outputs[0]['mce'], 'mce_results.json', self.experiment_path) #TODO This is wrong as only one batch is processed, should be all
         utils.save_dict_as_json(self.mce_batch_test, 'mce_results.json', self.experiment_path_test)
@@ -553,7 +566,7 @@ class VAE(pl.LightningModule):
         return kl
 
     # Reconstruction + KL divergence losses summed over all elements and batch
-    def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies, p, q, new_kld_function=False):
+    def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies, p, q, new_kld_function=False, train=True):
         from scipy.stats import norm
         # zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
         # one_mask = ~zero_mask
@@ -562,8 +575,8 @@ class VAE(pl.LightningModule):
         # MSE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
         #MSE = F.mse_loss(x, recon_x)# MSE is bad for this
         try:
-            # MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')# MSE is bad for this
-            MSE = F.mse_loss(x, recon_x, reduction='sum')# MSE is bad for this
+            MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')# MSE is bad for this
+            # MSE = F.mse_loss(x, recon_x, reduction='sum')# MSE is bad for this
 
             if(np.isnan(np.sum(MSE.detach().numpy()))):
                 print('s')
@@ -571,7 +584,7 @@ class VAE(pl.LightningModule):
             print('fo', e)
         if(new_kld_function):
             kl = self.new_kld_func(p,q)
-            self.kld_matrix = np.append(self.kld_matrix, np.asarray(kl.tolist()), axis=0)
+            self.kld_matrix_train = np.append(self.kld_matrix_train, np.asarray(kl.tolist()), axis=0)
             kld_mean = kl.mean(dim=0).mean()
         else:
             # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -594,7 +607,12 @@ class VAE(pl.LightningModule):
             # kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors,
             #                                        dim=1))  # 0: sum over latent factors (columns), 1: sum over sample (rows)
             # print('kld mean 2 dim 1:', kld_mean)
-            self.kld_matrix = np.append(self.kld_matrix, np.asarray(kld_latent_factors.tolist()), axis=0)
+
+            if(train):
+                self.kld_matrix_train = np.append(self.kld_matrix_train, np.asarray(kld_latent_factors.tolist()), axis=0)
+            else:
+                self.kld_matrix_test = np.append(self.kld_matrix_test, np.asarray(kld_latent_factors.tolist()), axis=0)
+
             #3)
             #
             # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
@@ -607,7 +625,8 @@ class VAE(pl.LightningModule):
         print('kld true: ', kld_mean)
         print('BCE: ', MSE)
         if(self.training):
-            kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+            # kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
+            kld_weight = beta
 
         else:
             kld_weight = beta
@@ -659,13 +678,17 @@ class VAE(pl.LightningModule):
         return avg_rmse, avg_mse, avg_rmse_wo_zeros, avg_mse_wo_zeros
 
     def load_attributes_and_files(self, path): #'filename.pickle'
+
         with open(path, 'rb') as handle:
             dct_attributes = pickle.load(handle)
         self.np_z_train = dct_attributes['np_z_train']
         self.np_logvar_train = dct_attributes['np_logvar_train']
+        self.np_var_train = dct_attributes['np_var_train']
         self.np_mu_train = dct_attributes['np_mu_train']
-        self.train_y = dct_attributes['train_y']
-        self.test_y = dct_attributes['test_y']
+        # self.kld_matrix_train = dct_attributes['kld_matrix_train']
+        if(self.np_synthetic_data is not None):
+            self.train_y = dct_attributes['train_y']
+            self.test_y = dct_attributes['test_y']
         self.ls_kld = dct_attributes['ls_kld']
 
         # self.dct_attribute_distribution = utils.load_json_as_dict(
@@ -677,15 +700,28 @@ class VAE(pl.LightningModule):
         print('Attributes loaded')
 
     def save_attributes(self, path):
-        dct_attributes = {'np_z_train':self.np_z_train,
-                          'np_logvar_train': self.np_logvar_train,
-                          'np_mu_train': self.np_mu_train,
-                          'train_y': self.train_y,
-                          'test_y':self.test_y,
-                          'ls_kld':self.ls_kld,
-                          'z_max_train': self.z_max_train,
-                          'z_min_train': self.z_min_train,
-                          'z_mean_train': self.z_mean_train}
+        if(self.np_synthetic_data is None):
+            dct_attributes = {'np_z_train': self.np_z_train,
+                              'kld_matrix_train': self.kld_matrix_train,
+                              'np_logvar_train': self.np_logvar_train,
+                              'np_var_train': self.np_var_train,
+                              'np_mu_train': self.np_mu_train,
+                              'ls_kld': self.ls_kld,
+                              'z_max_train': self.z_max_train,
+                              'z_min_train': self.z_min_train,
+                              'z_mean_train': self.z_mean_train}
+        else:
+            dct_attributes = {'np_z_train':self.np_z_train,
+                              'kld_matrix_train': self.kld_matrix_train,
+                              'np_logvar_train': self.np_logvar_train,
+                              'np_var_train': self.np_var_train,
+                              'np_mu_train': self.np_mu_train,
+                              'train_y': self.train_y,
+                              'test_y':self.test_y,
+                              'ls_kld':self.ls_kld,
+                              'z_max_train': self.z_max_train,
+                              'z_min_train': self.z_min_train,
+                              'z_mean_train': self.z_mean_train}
         with open(path, 'wb') as handle:
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
@@ -746,23 +782,28 @@ def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
 
     return df_w_metadata
 
-
 def alter_z(ts_z, latent_factor_position, model, strategy):
+    tmp_z = ts_z.detach().clone()
     if(strategy == 'max'):
-        ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position] #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
+        print('--> Max strategy')
+        ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]/2 #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
     elif(strategy == 'min'):
+        print('--> Min strategy')
         raise NotImplementedError("Min Strategy needs to be implemented")
     elif(strategy == 'min_max'):
+        # print('--> Min- Max strategy')
+
         try:
-            z_max_range = model.z_max_train[latent_factor_position] #TODO Evtl. take z_max_train here
-            z_min_range = model.z_min_train[latent_factor_position]
+            z_max_range = model.z_max_train[latent_factor_position]/2 #TODO Evtl. take z_max_train here
+            z_min_range = model.z_min_train[latent_factor_position]/2
 
             if(np.abs(z_max_range) > np.abs(z_min_range)):
-                ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]
+                ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]/2
             else:
-                ts_z[:, latent_factor_position] = model.z_min_train[latent_factor_position]
+                ts_z[:, latent_factor_position] = model.z_min_train[latent_factor_position]/2
         except IndexError:
             print('stop')
+    # print('Change in Z:{}'.format(tmp_z-ts_z))
     return ts_z
 
 #MCE is calculated for each category
@@ -773,11 +814,12 @@ def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
     ls_y_hat, mu, logvar, p, q = model(ts_batch_features)
     z = model.z
     # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
-
+    # print('Z: {}'.format(z))
     for latent_factor_position in range(model.no_latent_factors):
 
         # print("Calculate MCEs for latent factor: {}".format(latent_factor_position))
-        ts_altered_z = alter_z(z, latent_factor_position, model, strategy='min_max')#'max'
+        ts_altered_z = alter_z(z.detach().clone(), latent_factor_position, model, strategy='min_max')#'max'
+        # print('ts_altered_z: {}'.format(ts_altered_z))
 
         ls_y_hat_latent_changed, mu, logvar, p, q = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
 
@@ -819,7 +861,7 @@ def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
             y_hat_k_highest = (-y_hat).argsort()[:1] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
             y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
 
-            # for 
+            # for
             if(model.np_synthetic_data is None):
                 # synthetic = False
                 y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
@@ -829,25 +871,78 @@ def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
                 y_hat_latent_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
 
             # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            single_mce = metric_utils.mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            # single_mce = metric_utils.mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # single_mce = metric_utils.mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # print('Calculate MCE for:\n{} \nand: \n{}'.format(y_hat_w_metadata, y_hat_latent_w_metadata))
+            single_mce = metric_utils.mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
             ls_dct_mce.append(single_mce)
 
             # print(single_mce)
         dct_mce_mean[latent_factor_position] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
     return dct_mce_mean
 
-
 def generate_distribution_df():
     dct_attribute_distribution = utils.compute_relative_frequency(
         pd.read_csv('../data/generated/syn.csv'))
     utils.save_dict_as_json(dct_attribute_distribution, 'syn_attribute_distribution.json')
 
+def sampling_inf_gain(model):
+    dct_mce_mean = defaultdict(lambda: defaultdict(lambda:dict))
+    # hold n neurons of hidden layer
+    # change 1 neuron
+
+    z = model.z
+    # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
+    print('Z: {}'.format(z))
+    for latent_factor_position in range(model.no_latent_factors):
+        print('Sampling strategy')
+
+        for i in range(0, 2):
+            ls_tensor_values= []
+            for sample in range(0,200):
+                z = [0 for i in range(0, model.no_latent_factors)]
+                # z = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                ls_tensor_values.append(z)
+            np_tensor_value = np.asarray(ls_tensor_values).astype(float)
+            mu, sigma = 0, 0.2  # mean and standard deviation
+            s = np.random.normal(mu, sigma, 200)
+
+            if(i == 0):
+                np_tensor_value[:,latent_factor_position] = -1 + s
+            else:
+                np_tensor_value[:,latent_factor_position] = 1 + s
+
+
+            np_altered_z = np_tensor_value #np.asarray(ls_tensor_values)
+
+            ts_altered_z = torch.tensor(np_altered_z).float()
+            ls_y_hat_latent_changed = model.decode(ts_altered_z).detach().numpy()
+
+
+            ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+
+            ls_dct_mce = []
+            for user_idx in range(len(ls_y_hat_latent_changed)):  # tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
+                y_hat_latent = ls_y_hat_latent_changed[user_idx]
+                y_hat_latent_k_highest = (-y_hat_latent).argsort()[:1]
+                y_hat_latent_w_metadata = model.df_movies.loc[
+                    model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
+                single_mce = metric_utils.single_information_gain(y_hat_latent_w_metadata,
+                                                                  model.dct_attribute_distribution)  # mce for n columns
+
+
+                ls_dct_mce.append(single_mce)
+
+
+            orientation = 'negative' if i == 0 else 'positive'
+            dct_mce_mean[latent_factor_position]
+            # dct_mce_mean[latent_factor_position][orientation]
+            dct_mce_mean[latent_factor_position][orientation] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
+    return dct_mce_mean
 
 def traverse(test_model, experiment_path, dct_param):
     ls_axes = []
     fig = plt.figure(figsize=(25, 10))
-    st = fig.suptitle('This is a somewhat long figure title', fontsize=16, y=1.3)
+    # st = fig.suptitle('This is a somewhat long figure title', fontsize=16, y=1.3)
     # plt.subplots_adjust(top=0.25)
     # f, axes = plt.subplots(1, 2)
 
@@ -876,11 +971,13 @@ def traverse(test_model, experiment_path, dct_param):
         ax_heatmap = sns.heatmap(np_samples, ax=ax, yticklabels=ls_y)
     # plt.title('Traversing over Latent Space', y=1.5)
     # plt.suptitle('Traversing over Latent Space',y=1.5)
-    fig.tight_layout()
-    st.set_y(0.95)
-    fig.subplots_adjust(top=0.85)
+    ax_heatmap.get_figure().tight_layout()
+    # plt.title('foo')
+    # st.set_y(0.95)
+    plt.subplots_adjust(top=0.5)
 
     plt.show()
+    plot_utils.save_figure(ax_heatmap.get_figure(), experiment_path, 'traversing_heatmap', dct_param)
 
 
     # ls_tensor_values=[]
@@ -896,37 +993,76 @@ def traverse(test_model, experiment_path, dct_param):
     plot_utils.create_heatmap(np_samples, 'traversal', 'Sample ID', 'Item ID',
                               'heatmap-samples', experiment_path, dct_param)
 
+def default_to_regular(d):
+    if isinstance(d, defaultdict):
+        d = {k: default_to_regular(v) for k, v in d.items()}
+    return d
+
+def create_multi_mce(test_model):
+
+    dct_inf_gain = sampling_inf_gain(test_model)
+    dct_inf_gain = default_to_regular(dct_inf_gain)
+    ls_rows = []
+    ls_columns = []
+
+    for lf_key, orient_value in dct_inf_gain.items():
+
+        for att_key, dct_val in orient_value.items():
+            row = []
+            col = []
+            row.append(att_key)
+            col.append('spectrum')
+            for key, val in dct_val.items():
+                row.append(val)
+                col.append(key)
+
+            row.append(lf_key)
+            col.append('LF')
+            ls_columns.append(col)
+
+            ls_rows.append(row)
+
+    df_ig = pd.DataFrame(data=ls_rows, columns=ls_columns[0])
+    plot_utils.plot_ig_by_latent_factor(df_ig, 'Title', test_model.experiment_path_test, dct_param)
+    # df_mce_results = pd.read_json(
+    #     experiment_path + '/mce_results.json')  # ../data/generated/mce_results.json'
+
+#TODO If MC than change title of all plots from MCE to MC
 
 if __name__ == '__main__':
+    # Architecture Parameters
     torch.manual_seed(100)
     args = training_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
     settings.init()
-    #%%
-    train = False
-    synthetic_data = True
-    expanded_user_item = False
+    #------------------------
+
+    # General Parameters
+    train = True
     mixup = False
     is_hessian_penalty_activated = False
-    # continous_data = False
-    # normalvariate = False
+    base_path = 'results/models/vae/'
+    used_data = 'vae'
+    synthetic_data = True
+    full_test_routine = False
+    # ------------------------
+
+    #MovieLens Data Parameters
+    small_movie_dataset=False
+    # ------------------------
+
+    # Synthetic Data Parameters
+    expanded_user_item = False
     ls_normalvariate = [False]
     ls_continous = [True]
-    base_path = 'results/models/vae/'
-    used_data = 'syn'
-    full_test_routine = False
     noise = False
     no_generative_factors = 3
-    # used_data ='vae'
-    used_data ='ae'
+    # ------------------------
 
-
-    ls_epochs = [30] #-->7 #5,10,15,20,25,30,40,50,60,70,80,90,100,120,150,200,270,350,500
-    #Note: Mit steigender Epoche wird das disentanglement verstärkt
-    #
-    ls_latent_factors = [10]
-    beta_normalized = 10 / (20 * no_generative_factors)
-    ls_betas = [] #disentangle_factors .0003
+    ls_epochs = [2]
+    ls_latent_factors = [5]
+    # beta_normalized = 10 / (20 * no_generative_factors)
+    ls_betas = [1] #disentangle_factors
 
     for epoch in ls_epochs:
         for normalvariate in ls_normalvariate:
@@ -936,7 +1072,10 @@ if __name__ == '__main__':
                         if(expanded_user_item):
                             beta_normalized = lf/(800)
                         else:
-                            beta_normalized = lf / (20 * no_generative_factors) #lf/input_size, e.g. 2/10000 = 0.0002
+                            if(synthetic_data):
+                                beta_normalized = lf / (20 * no_generative_factors) #lf/input_size, e.g. 2/10000 = 0.0002
+                            else:
+                                beta_normalized = lf / 14000#(20 * no_generative_factors) #lf/input_size, e.g. 2/10000 = 0.0002
                         ls_betas.append(beta_normalized)
                     for beta in ls_betas:
                         train_tag = "train"
@@ -945,7 +1084,10 @@ if __name__ == '__main__':
 
                         print("Processing model with: {} epochs, {} latent factors, {} beta".format(epoch, lf, beta))
                         # exp_name = "{}_beta_{}_epochs_{}_lf_synt_{}_normal_{}_continous_{}_hessian_{}_noise_{}".format(beta, epoch, lf, synthetic_data, normalvariate, continous_data, is_hessian_penalty_activated, noise)
-                        exp_name = "{}_beta_{}_epochs_{}_lf_synt_{}_normal_{}_continous_{}_hessian_{}".format(beta, epoch, lf, synthetic_data, normalvariate, continous_data, is_hessian_penalty_activated)
+                        exp_name = "{}_beta_{}_epochs_{}_lf_synt_{}_normal_{}_continous_{}_hessian_{}".format(beta, epoch, lf,
+                                                                                                              synthetic_data,
+                                                                                                              normalvariate, continous_data,
+                                                                                                              is_hessian_penalty_activated)
                         wandb_name = exp_name + "_" + train_tag
                         model_name = exp_name + ".ckpt"
                         attribute_name = exp_name + "_attributes.pickle"
@@ -954,8 +1096,12 @@ if __name__ == '__main__':
 
                         experiment_path = utils.create_experiment_directory()
 
-                        model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 100), expanded_user_item, mixup,
-                                no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
+                        model_params = training_utils.create_model_params(experiment_path, epoch, lf,
+                                                                          beta, int(epoch / 100),
+                                                                          expanded_user_item, mixup,
+                                                                          no_generative_factors, epoch,
+                                                                          is_hessian_penalty_activated, used_data,
+                                                                          small_movie_dataset)
 
                         args.max_epochs = epoch
 
@@ -987,7 +1133,7 @@ if __name__ == '__main__':
                             model = VAE(model_params)
                             wandb_logger.watch(model, log='gradients', log_freq=100)
 
-                            # utils.print_nn_summary(model, size =200)
+                            # plot_utils.print_nn_summary(model, size =model.np_synthetic_data.shape[1])
 
                             print('------ Start Training ------')
                             trainer.fit(model)
@@ -1012,18 +1158,18 @@ if __name__ == '__main__':
                                     'continous':continous_data, 'hessian':is_hessian_penalty_activated, 'noise':noise}
                         # plot_utils.plot_samples(test_model, experiment_path, dct_param)
 
-                        # z = torch.randn(1, test_model.no_latent_factors)
-                        #
-                      #
-                        # Here we create a figure instance, and two subplots
-                        traverse(test_model, experiment_path, dct_param)
+                        if(test_model.no_latent_factors<11):
+                            traverse(test_model, experiment_path, dct_param)
+                            if(test_model.np_synthetic_data is not None):
+                                create_multi_mce(test_model)
 
                         trainer.test(test_model) #The test loop will not be used until you call.
                         print('Test time in seconds: {}'.format(time.time() - start))
                         # print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
                         # print(results)
 
-                        disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
+                        if(synthetic_data):
+                            disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
 
                         plot_utils.plot_results(test_model,
                                            test_model.experiment_path_test,

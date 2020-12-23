@@ -828,11 +828,11 @@ if __name__ == '__main__':
     used_data = "dsprites"
     base_path = 'results/models/vae/'
 
-    ls_epochs = [20]#5 with new data, 70 was trained w/ old mnist
+    ls_epochs = [21]#5 with new data, 70 was trained w/ old mnist
     #Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]
-    ls_betas = [0.08] #disentangle_factors .0003 64/784,
+    ls_betas = [4] #disentangle_factors .0003 64/784,
     no_generative_factors = 3
 
     for epoch in ls_epochs:
@@ -924,7 +924,8 @@ if __name__ == '__main__':
                 # model_path = base_curated_test_path + "lin_rkld_morpho_data_0.012755102040816327_beta_20_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
                 # model_path = base_curated_test_path + "rkld_morpho_data_4_beta_20_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
                 # model_path = base_curated_test_path + "dsprites_mse_dsprites_data_0.08163265306122448_beta_200_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
-                model_path = base_curated_test_path + "dsprites_mse_dsprites_data_4_beta_21_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
+                model_path = base_curated_test_path + "dsprites_mse_dsprites_data_4_beta_200_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
+                # model_path = base_curated_test_path + "dsprites_mse_dsprites_data_4_beta_10_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
                 # model_path = base_curated_test_path + "dsprites_dsprites_data_0.08163265306122448_beta_20_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False.ckpt"
 
                 # attribute_path = base_curated_test_path + "4_beta_10_epochs_10_lf_synt_True_attributes.pickle"
@@ -942,7 +943,8 @@ if __name__ == '__main__':
                 # attribute_path = base_curated_test_path + "lin_rkld_morpho_data_0.012755102040816327_beta_20_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
                 # attribute_path = base_curated_test_path + "rkld_morpho_data_4_beta_20_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
                 # attribute_path = base_curated_test_path + "dsprites_mse_dsprites_data_0.08163265306122448_beta_200_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
-                attribute_path = base_curated_test_path + "dsprites_mse_dsprites_data_4_beta_21_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
+                attribute_path = base_curated_test_path + "dsprites_mse_dsprites_data_4_beta_200_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
+                # attribute_path = base_curated_test_path + "dsprites_mse_dsprites_data_4_beta_10_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
                 # attribute_path = base_curated_test_path + "dsprites_dsprites_data_0.08163265306122448_beta_20_epochs_10_lf_synt_True_normal_False_continous_False_hessian_False_attributes.pickle"
 
                 test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'

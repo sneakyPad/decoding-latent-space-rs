@@ -29,7 +29,7 @@ class SquareCollection(collections.RegularPolyCollection):
 
 
 def hinton(inarray, x_label=None, y_label=None, max_value=None, use_default_ticks=True, 
-           ax=None, fontsize=14, ls_own_colours=None, background_color=None):
+           ax=None, fontsize=20, ls_own_colours=None, background_color=None):
     """Plot Hinton diagram for visualizing the values of a 2D array.
 
     Plot representation of an array with positive and negative values
