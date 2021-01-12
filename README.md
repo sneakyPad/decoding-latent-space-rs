@@ -1,7 +1,7 @@
 
 
 <h1 align="center">
-    <img width=100% alt="" src="./docs/images/latent-space.png"> </a>
+    <img width=80% alt="" src="./docs/images/latent-space.png"> </a>
     <br>
 </h1>
 
@@ -41,7 +41,7 @@ The Magnitude of Change MC is specified as the relative Information Gain of a mo
 
 <!--<img src="https://render.githubusercontent.com/render/math?math=H(X)">-->
 <h1 align="center">
-    <img width=70% alt="" src="./docs/images/concept_one_clean.png"> </a>
+    <img width=40% alt="" src="./docs/images/concept_one_clean.png"> </a>
     <br>
 </h1>
 
