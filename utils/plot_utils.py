@@ -475,11 +475,11 @@ def plot_z_values_of_latent_factors(model, title, experiment_path, dct_params, s
     #Create plot for generative factors on the x-axis
     ax = df.plot.bar(stacked=False,rot=0)
 
-    plt.title('Mean of Z value for Generative Factors (c)', fontsize=17, y=1.08)
+    plt.title('Mean z-values for Generative Factors c', fontsize=17, y=1.08)
     plt.tight_layout()
     fig = ax.get_figure()
     plt.ylabel('Mean Value')
-    plt.xlabel('Generative Factor (c)')
+    plt.xlabel('Generative Factor c')
     save_figure(fig, experiment_path, 'gen-factors2latent-factors-mean', dct_params)
     plt.show()
 
@@ -490,7 +490,7 @@ def plot_z_values_of_latent_factors(model, title, experiment_path, dct_params, s
 
     # df=df.T
     # ax = df.plot.bar(stacked=False, rot=0)
-    plt.title('Mean of Z value for Latent Factors (z)', fontsize=17, y=1.08)
+    plt.title('Mean z-value for Generative Factors c', fontsize=17, y=1.08)
     plt.tight_layout()
     fig = ax.get_figure()
     plt.ylabel('Mean Value')
@@ -710,10 +710,10 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
         plot_parallel_lf(model, exp_path_img, dct_params)
         swarm_plot_melted(df_melted, exp_path_img, dct_params)
 
-        plot_distribution(df_melted, 'Probability Distribution of Latent Factors (z)', exp_path_img,dct_params)
+        plot_distribution(df_melted, 'Probability Distribution of Latent Factors z', exp_path_img,dct_params)
         # plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
-        plot_swarmplot(df_melted, "Z Values of all Latent Factors", exp_path_img,dct_params)
-        plot_violinplot(df_melted, "Z Values of all Latent Factors", exp_path_img,dct_params)
+        plot_swarmplot(df_melted, "z Values of all Latent Factors", exp_path_img,dct_params)
+        plot_violinplot(df_melted, "z Values of all Latent Factors", exp_path_img,dct_params)
         plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
         # plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
         # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
@@ -729,6 +729,6 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
             plot_kld_line_of_latent_factor(model, 'Mean of KLD by Latent Factor', exp_path_img, dct_params)
 
             if(model.generative_factors == 2):
-                plot_3D_lf_z(model, '3D of Z-Values for LF', exp_path_img, dct_params)
+                plot_3D_lf_z(model, '3D of z-Values for LF', exp_path_img, dct_params)
 
         # plot_mce(model, neptune_logger, max_epochs) #TODO Change method to process multiple entries

@@ -1,7 +1,7 @@
 
 
 <h1 align="center">
-    <img width=80% alt="" src="./docs/images/latent-space.png"> </a>
+    <img width=100% alt="" src="./docs/images/latent-space.png"> </a>
     <br>
 </h1>
 
