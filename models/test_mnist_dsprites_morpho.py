@@ -34,7 +34,8 @@ import time
 import random
 import os
 from disentvaeutils.datasets import get_dataloaders, get_img_size, DATASETS
-from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings,io
+from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings,morpho_utils
+import utils.morphomnist.io as morpho_io
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -275,8 +276,10 @@ class VAE(pl.LightningModule):
 
             MORPHO_MNIST_FILE_TRAIN_Y = "./models/output_dir/pm-pert-idx1-ubyte.gz"
             MORPHO_MNIST_FILE_TRAIN_X = "./models/output_dir/pm-images-idx3-ubyte.gz"
-            self.train_dataset = io.load_idx(MORPHO_MNIST_FILE_TRAIN_X)[:9000]
-            self.train_y = io.load_idx(MORPHO_MNIST_FILE_TRAIN_Y)[:9000]
+            # self.train_dataset = morpho_utils.load_idx(MORPHO_MNIST_FILE_TRAIN_X)[:9000]
+            self.train_dataset = morpho_io.load_idx(MORPHO_MNIST_FILE_TRAIN_X)[:9000]
+            # self.train_y = morpho_utils.load_idx(MORPHO_MNIST_FILE_TRAIN_Y)[:9000]
+            self.train_y = morpho_io.load_idx(MORPHO_MNIST_FILE_TRAIN_Y)[:9000]
         elif(self.used_data == 'dsprites'):
             # train_loader = get_dataloaders('dsprites', batch_size=512, shuffle=False)
             train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, num_workers=8,batch_size=self.batch_size, shuffle=True)
@@ -295,8 +298,10 @@ class VAE(pl.LightningModule):
         if(self.used_data == 'morpho'):
             MORPHO_MNIST_FILE_TEST_Y = "./models/output_dir/pm-pert-idx1-ubyte.gz"
             MORPHO_MNIST_FILE_TEST_X = "./models/output_dir/pm-images-idx3-ubyte.gz"
-            self.test_dataset = io.load_idx(MORPHO_MNIST_FILE_TEST_X)[9500:10000]
-            self.test_y = io.load_idx(MORPHO_MNIST_FILE_TEST_Y)[9500:10000]
+            # self.test_dataset = morpho_utils.load_idx(MORPHO_MNIST_FILE_TEST_X)[9500:10000]
+            self.test_dataset = morpho_io.load_idx(MORPHO_MNIST_FILE_TEST_X)[9500:10000]
+            # self.test_y = morpho_utils.load_idx(MORPHO_MNIST_FILE_TEST_Y)[9500:10000]
+            self.test_y = morpho_io.load_idx(MORPHO_MNIST_FILE_TEST_Y)[9500:10000]
         elif(self.used_data == 'dsprites'):
             test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=int(self.batch_size/2), shuffle=False)
             return test_loader

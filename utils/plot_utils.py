@@ -676,7 +676,7 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
     plt.rcParams["text.usetex"] = False
     sns.set_style("whitegrid")
     # sns.set_theme(style="ticks")
-    df_mce_results = pd.read_json(experiment_path_test+'/mce_results.json')#../data/generated/mce_results.json'
+    df_mce_results = pd.read_json(experiment_path_test+'mce_results.json')#../data/generated/mce_results.json'
     # df_mce_wo_kld_results = pd.read_json(experiment_path_train+'/mce_results_wo_kld.json')#../data/generated/mce_results.json'
     exp_path_img = experiment_path_test + "images/"
     plot_samples(model, exp_path_img, dct_params)
@@ -700,7 +700,7 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
         # plot_covariance_heatmap(model, exp_path_img, dct_params)
         plot_pairplot_lf_z(model, 'Visualization of Latent Factors', exp_path_img, dct_params)
 
-        if(model.used_data is not 'dsprites'):
+        if(model.used_data != 'dsprites'):
             plot_z_values_of_latent_factors(model, 'gen2latent', exp_path_img, dct_params, False)
         # polar_plot(model, 'Correlation of Latent Factors for Z', exp_path_img, dct_params)
         #
@@ -714,7 +714,8 @@ def plot_results(model, experiment_path_test, experiment_path_train, dct_params)
         # plot_catplot(df_melted, "Latent Factors", exp_path_img,dct_params)
         plot_swarmplot(df_melted, "z Values of all Latent Factors", exp_path_img,dct_params)
         plot_violinplot(df_melted, "z Values of all Latent Factors", exp_path_img,dct_params)
-        plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
+        if(model.used_data != 'morpho'):
+            plot_mce_by_latent_factor(df_mce_results.copy(), 'MCE sorted by Latent Factor', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
         # plot_mce_wo_kld(df_mce_wo_kld_results.copy(), 'MCE sorted by Latent Factor - wo KLD', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
         # plot_mce_wo_kld(df_mce_wo_kld_results2.copy(), 'MCE sorted by Latent Factor - wo KLD 2', exp_path_img, dct_params) ##make a copy otherwise the original df is altered,
         # plot_parallel_plot(df_mce_results.copy(), 'MCE for different Metadata', exp_path_img, dct_params)##make a copy otherwise the original df is altered,

@@ -34,7 +34,8 @@ import time
 import random
 import os
 from disentvaeutils.datasets import get_dataloaders, get_img_size, DATASETS
-from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings,io
+from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings,morpho_utils
+import utils.morphomnist.io as morpho_io
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -249,8 +250,8 @@ class VAE(pl.LightningModule):
             # MORPHO_MNIST_FILE_TRAIN_Y = "/Users/d069735/workspace/Study/decoding-latent-space-rs/data/morpho-mnist/global/train-pert-idx1-ubyte.gz"
             MORPHO_MNIST_FILE_TRAIN_Y = "output_dir/pm-pert-idx1-ubyte.gz"
             MORPHO_MNIST_FILE_TRAIN_X = "output_dir/pm-images-idx3-ubyte.gz"
-            self.train_dataset = io.load_idx(MORPHO_MNIST_FILE_TRAIN_X)[:9000]
-            self.train_y = io.load_idx(MORPHO_MNIST_FILE_TRAIN_Y)[:9000]
+            self.train_dataset = morpho_io.load_idx(MORPHO_MNIST_FILE_TRAIN_X)[:9000]
+            self.train_y = morpho_io.load_idx(MORPHO_MNIST_FILE_TRAIN_Y)[:9000]
         elif(self.used_data == 'dsprites'):
             # train_loader = get_dataloaders('dsprites', batch_size=512, shuffle=False)
             train_loader = torch.utils.data.DataLoader(dataset=self.train_dataset, num_workers=8,batch_size=self.batch_size, shuffle=True)
@@ -272,8 +273,8 @@ class VAE(pl.LightningModule):
             MORPHO_MNIST_FILE_TEST_Y = "output_dir/pm-pert-idx1-ubyte.gz"
             # MORPHO_MNIST_FILE_TEST_X = "/Users/d069735/workspace/Study/decoding-latent-space-rs/data/morpho-mnist/global/t10k-images-idx3-ubyte.gz"
             MORPHO_MNIST_FILE_TEST_X = "output_dir/pm-images-idx3-ubyte.gz"
-            self.test_dataset = io.load_idx(MORPHO_MNIST_FILE_TEST_X)[9000:10000]
-            self.test_y = io.load_idx(MORPHO_MNIST_FILE_TEST_Y)[9000:10000]
+            self.test_dataset = morpho_io.load_idx(MORPHO_MNIST_FILE_TEST_X)[9000:10000]
+            self.test_y = morpho_io.load_idx(MORPHO_MNIST_FILE_TEST_Y)[9000:10000]
         elif(self.used_data == 'dsprites'):
             # self.test_dataset =
             test_loader = torch.utils.data.DataLoader(dataset=self.test_dataset, batch_size=int(self.batch_size/2), shuffle=False)
@@ -486,7 +487,7 @@ class VAE(pl.LightningModule):
         mse_test = np.array([x['MSE-Test'] for x in outputs])
         kld_test =np.array([x['KLD-Test'] for x in outputs])
         # ls_mce = {x['mce'] for x in outputs}
-        # utils.save_dict_as_json(self.mce_batch_test, 'mce_results.json', self.experiment_path_test)
+        utils.save_dict_as_json(self.mce_batch_test, 'mce_results.json', self.experiment_path_test)
         # avg_mce = dict(calculate_mean_of_ls_dict(ls_mce))
 
         # avg_rmse = np.array([x['rmse'] for x in outputs]).mean()
@@ -804,7 +805,7 @@ if __name__ == '__main__':
     # used_data = "dsprites"
     base_path = 'results/models/vae/'
 
-    ls_epochs = [20]#5 with new data, 70 was trained w/ old mnist
+    ls_epochs = [1]#5 with new data, 70 was trained w/ old mnist
     #Note: Mit steigender Epoche wird das disentanglement verstärkt
     #
     ls_latent_factors = [10]
@@ -858,7 +859,8 @@ if __name__ == '__main__':
                                                                                                                  experiment_path,
                                                                                                                  expanded_user_item,
                                                                                                                  continous_data,
-                                                                                                                 normalvariate)
+                                                                                                                 normalvariate,
+                                                                                                                 noise = False)
                         generate_distribution_df()
 
                     model = VAE(model_params)

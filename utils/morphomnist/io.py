@@ -62,7 +62,7 @@ def load_idx(path: str) -> np.ndarray:
 
 if __name__ == '__main__':
     # MNIST_FILE = "data/mnist/raw/train-images-idx3-ubyte"
-    MNIST_FILE = "/Users/d069735/workspace/Study/decoding-latent-space-rs/data/morpho-mnist/global/train-pert-idx1-ubyte.gz"
+    MNIST_FILE = "./data/morpho-mnist/global/train-pert-idx1-ubyte.gz"
     TEST_FILE = "test"
 
     data = load_idx(MNIST_FILE)
