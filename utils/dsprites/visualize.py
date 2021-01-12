@@ -1,5 +1,4 @@
 import os
-from math import ceil, floor
 
 import imageio
 from PIL import Image
@@ -7,12 +6,11 @@ import numpy as np
 from scipy import stats
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
-from torchvision.utils import make_grid, save_image
+from torchvision.utils import save_image
 
-from disentvaeutils.datasets import get_background
-from disentvaeutils.viz_helpers import (read_loss_from_file, add_labels, make_grid_img,
-                               sort_list_by_other, FPS_GIF, concatenate_pad)
+from utils.dsprites import get_background
+from utils.dsprites import (read_loss_from_file, add_labels, make_grid_img,
+                            sort_list_by_other, FPS_GIF, concatenate_pad)
 
 TRAIN_FILE = "train_losses.log"
 DECIMAL_POINTS = 3

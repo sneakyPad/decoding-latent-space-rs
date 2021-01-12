@@ -2,13 +2,13 @@ import matplotlib.pyplot as plt
 # %matplotlib inline
 # from utils import utils
 # import utils.utils as utils
-from lib.eval.hinton import hinton
+from utils.qedr.eval.hinton import hinton
 
 import os
 import numpy as np
-from lib.eval.regression import normalize, entropic_scores, print_table_pretty, nrmse
-from lib.zero_shot import get_gap_ids
-from lib.utils import mkdir_p
+from utils.qedr.eval.regression import normalize, entropic_scores, print_table_pretty, nrmse
+from utils.qedr.zero_shot import get_gap_ids
+from utils.qedr.utils import mkdir_p
 import math
 import pandas as pd
 from utils import plot_utils

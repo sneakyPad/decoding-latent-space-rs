@@ -2,39 +2,28 @@
 # pip install neptune-client
 #%%
 from __future__ import print_function
-import wandb
-from utils.hessian_penalty_pytorch import hessian_penalty
+from utils.hessian_penalty.hessian_penalty_pytorch import hessian_penalty
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks.progress import ProgressBar
-import torch, torch.nn as nn, torchvision, torch.optim as optim
-from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-import ast
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from collections import defaultdict
 import torch
 import torch.utils.data
 from torch import nn, optim
 from torch.nn import functional as F
-from torch.optim.lr_scheduler import StepLR
-from torchvision import datasets, transforms
-from torchvision.utils import save_image
 import math
 import pytorch_lightning as pl
 # import utils.plot_utils as utils
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import pandas as pd
-from sklearn import manifold, decomposition
 import pickle
 import wandb
-from scipy.stats import entropy
 import time
-import random
 import os
-from disentvaeutils.datasets import get_dataloaders, get_img_size, DATASETS
-from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings#,morpho_utils
+from utils.dsprites.datasets import get_dataloaders
+from utils import training_utils, data_utils, utils, metric_utils, settings, disentangle_utils  # ,morpho_utils
 import utils.morphomnist.io as morpho_io
 #ToDo EDA:
 # - Long Tail graphics
@@ -182,7 +171,6 @@ class VAE(pl.LightningModule):
         self.decoder.apply(self.weight_init)
 
         self.batch_size =512
-        import sklearn
         # np_user_item, ls_y = sklearn.utils.shuffle(np_user_item, ls_y)
         if (self.used_data == 'dsprites'):
             self.batch_size =4096

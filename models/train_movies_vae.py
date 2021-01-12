@@ -2,38 +2,29 @@
 # pip install neptune-client
 #%%
 from __future__ import print_function
-import wandb
-from utils.hessian_penalty_pytorch import hessian_penalty
+from utils.hessian_penalty.hessian_penalty_pytorch import hessian_penalty
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks.progress import ProgressBar
-import torch, torch.nn as nn, torchvision, torch.optim as optim
-from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-import ast
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from collections import defaultdict
 import torch
 import torch.utils.data
 from torch import nn, optim
 from torch.nn import functional as F
-from torch.optim.lr_scheduler import StepLR
-from torchvision import datasets, transforms
-from torchvision.utils import save_image
 import math
 import pytorch_lightning as pl
 # import utils.plot_utils as utils
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import pandas as pd
-from sklearn import manifold, decomposition
 import pickle
 import wandb
-from scipy.stats import entropy
 import time
-import random
 import os
-from utils import disentangle_utils, training_utils, plot_utils, data_utils, utils, metric_utils, settings, latent_space_utils
+from utils import training_utils, plot_utils, data_utils, utils, metric_utils, settings, latent_space_utils, \
+    disentangle_utils
+
 #ToDo EDA:
 # - Long Tail graphics
 # - Remove user who had less than a threshold of seen items
@@ -570,7 +561,6 @@ class VAE(pl.LightningModule):
     # Reconstruction + KL divergence losses summed over all elements and batch
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies, p, q, new_kld_function=False, train=True):
         """ELBO assuming entries of x are binary variables, with closed form KLD."""
-        from scipy.stats import norm
         # zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
         # one_mask = ~zero_mask
         # x = x[one_mask]

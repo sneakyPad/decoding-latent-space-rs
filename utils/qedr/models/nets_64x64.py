@@ -3,13 +3,12 @@
 import functools
 import tensorflow as tf
 
-from lib.models.distributions import Product, Distribution, Gaussian, Categorical, Bernoulli, MeanBernoulli
-from lib.models.ops.linear import Linear
-from lib.models.ops.conv2d import Conv2D
-from lib.models.ops.deconv2d import Deconv2D
-from lib.models.ops import linear, conv2d, deconv2d
-from lib.models.ops.batchnorm import Batchnorm
-from lib.models.ops.layernorm import Layernorm
+from utils.qedr.models.ops import Linear
+from utils.qedr.models.ops import Conv2D
+from utils.qedr.models.ops import Deconv2D
+from utils.qedr.models.ops import linear, conv2d, deconv2d
+from utils.qedr.models.ops import Batchnorm
+from utils.qedr.models.ops import Layernorm
 
 DIM = 64
 CPU = False # True: data_format='NHWC', False: data_format='NCHW'

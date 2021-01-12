@@ -143,8 +143,11 @@ data/kaggle/*
 models/*
 data/generated/*
 
+.idea/*
+data/*
 
 
 # IDE specific
 **/.idea/workspace.xml 
 **/.idea/tasks.xml
+/.idea/

@@ -12,13 +12,13 @@ from shutil import rmtree
 from setuptools import find_packages, setup, Command
 
 # Package meta-data.
-NAME = 'rs-decoding-latent-variables'
-MAIN_PACKAGE = 'rec-utils'  # Change if main package != NAME
-DESCRIPTION = 'Recommender Service based on Collaborative Filtering for NGP'
-URL = 'https://github.wdf.sap.corp/sapai/recommender-ngp'
-EMAIL = 'patrick.mueller06@sap.com'
-AUTHOR = 'Patrick Mueller'
-REQUIRES_PYTHON = '>=3.6.0'
+NAME = 'decoding-latent-space-rs'
+MAIN_PACKAGE = ''  # Change if main package != NAME
+DESCRIPTION = 'Decoding latent space of Recommender Service based on Collaborative Filtering'
+URL = 'https://github.com/sneakyPad/decoding-latent-space-rs'
+EMAIL = ''
+AUTHOR = 'PM'
+REQUIRES_PYTHON = '=3.7'
 VERSION = '0.0.1'
 
 # What packages are required for this module to be executed?
@@ -125,7 +125,7 @@ setup(
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy'
     ],
