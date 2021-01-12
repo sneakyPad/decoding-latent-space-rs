@@ -16,7 +16,7 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import os
 import numpy as np
-
+from collections import defaultdict
 
 def my_eval(expression):
     return expression
@@ -117,3 +117,19 @@ def save_dict_as_json(dct, name, path=None):
 
     with open(path + name, 'w') as file:
         json.dump(dct, file, indent=4, sort_keys=True)
+
+def default_to_regular(d):
+    if isinstance(d, defaultdict):
+        d = {k: default_to_regular(v) for k, v in d.items()}
+    return d
+
+def calculate_mean_of_ls_dict(ls_dict: list):
+    dct_sum = defaultdict(float)
+
+    for dict in ls_dict:
+        for key, val in dict.items():
+            dct_sum[key] += val
+    np_mean_vals = np.array(list(dct_sum.values())) / len(ls_dict)
+    dct_mean = list(zip(dct_sum.keys(), np_mean_vals))
+    # print(dct_mean)
+    return dct_mean

@@ -1,4 +1,4 @@
-from models import train_movies_ae
+from models import movies_ae
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt

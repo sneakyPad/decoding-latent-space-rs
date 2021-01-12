@@ -6,7 +6,7 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
-
+from torch.utils.tensorboard import SummaryWriter
 
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
@@ -128,7 +128,7 @@ def test(epoch):
     print('====> Test set loss: {:.4f}'.format(test_loss))
     writer.close()
 
-from torch.utils.tensorboard import SummaryWriter
+
 
 # default `log_dir` is "runs" - we'll be more specific here
 writer = SummaryWriter('runs/mnist_vae_6')

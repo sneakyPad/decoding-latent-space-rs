@@ -70,3 +70,27 @@ def traverse(test_model, experiment_path, dct_param):
     # plt.show()
     plot_utils.create_heatmap(np_samples, 'traversal', 'Sample ID', 'Item ID',
                               'heatmap-samples', experiment_path, dct_param)
+
+def alter_z(ts_z, latent_factor_position, model, strategy):
+    tmp_z = ts_z.detach().clone()
+    if(strategy == 'max'):
+        print('--> Max strategy')
+        ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]/2 #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
+    elif(strategy == 'min'):
+        print('--> Min strategy')
+        raise NotImplementedError("Min Strategy needs to be implemented")
+    elif(strategy == 'min_max'):
+        # print('--> Min- Max strategy')
+
+        try:
+            z_max_range = model.z_max_train[latent_factor_position]/2 #TODO Evtl. take z_max_train here
+            z_min_range = model.z_min_train[latent_factor_position]/2
+
+            if(np.abs(z_max_range) > np.abs(z_min_range)):
+                ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]/2
+            else:
+                ts_z[:, latent_factor_position] = model.z_min_train[latent_factor_position]/2
+        except IndexError:
+            print('stop')
+    # print('Change in Z:{}'.format(tmp_z-ts_z))
+    return ts_z

@@ -1,6 +1,4 @@
 # pip install pytorch-lightning
-# pip install neptune-client
-#%%
 from __future__ import print_function
 from utils.hessian_penalty.hessian_penalty_pytorch import hessian_penalty
 from pytorch_lightning.loggers import WandbLogger
@@ -14,7 +12,6 @@ from torch import nn, optim
 from torch.nn import functional as F
 import math
 import pytorch_lightning as pl
-# import utils.plot_utils as utils
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -26,41 +23,21 @@ from utils import training_utils, plot_utils, data_utils, utils, metric_utils, s
     disentangle_utils
 
 #ToDo EDA:
-# - Long Tail graphics
-# - Remove user who had less than a threshold of seen items
-# - Create Markdown with EDA results
+# - Long Tail graphic
+# - Remove user who had less than a certain threshold of seen items
 
 #ToDo input_params:
-# Parameter that should be tweakable by invoking the routine:
+# Parameter that should be adjustable by invoking the routine:
 # - epochs
 # - learning_rate
 # - batch_size
 # - simplified_rating
-# - hidden_layer number
-# - Algorithm: VAE, AE or SVD
 
 #ToDo metrics:
 # Add https://towardsdatascience.com/evaluation-metrics-for-recommender-systems-df56c6611093
 
-#ToDo training:
-# Add test loss
-
-
 seed = 42
 torch.manual_seed(seed)
-##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
-##If set to False, the actual rating is taken
-##Shape: (n_user, n_items)
-
-def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter: bool):
-    # user_based_items_filter == True is what most people do
-    mask = None
-    if (user_based_items_filter):
-        mask = ts_batch_user_features == 0.  # filter out everything except what the user has seen , mask_zeros
-    else:
-        # TODO Mask filters also 1 out, that's bad
-        mask = ts_batch_user_features == tsls_yhat_user  # Obtain a mask for filtering out items that haven't been seen nor recommended, basically filter out what is 0:0 or 1:1
-    return mask
 
 class VAE(pl.LightningModule):
     def __init__(self, conf:dict, *args, **kwargs):
@@ -93,7 +70,6 @@ class VAE(pl.LightningModule):
         self.test_y_bin = None
         self.df_movies_z_combined =None
 
-
         if(self.np_synthetic_data is None):
             self.load_dataset() #additionaly assigns self.unique_movies and self.np_user_item
             self.df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
@@ -115,7 +91,6 @@ class VAE(pl.LightningModule):
 
         #nn.Linear layer creates a linear function (θx + b), with its parameters initialized
         self.input_dimension = int(self.unique_movies *math.pow(4, self.generative_factors)) if self.expanded_user_item == True else self.unique_movies
-
 
         self.fc11 = nn.Linear(in_features=self.input_dimension, out_features=200)  # input
         # self.fc12 = nn.Linear(in_features=600, out_features=300)  # input
@@ -166,27 +141,18 @@ class VAE(pl.LightningModule):
         self.z_max_train = []
 
         # Initialize weights
-        self.encoder.apply(self.weight_init)
-        self.decoder.apply(self.weight_init)
-
+        self.encoder.apply(training_utils.weight_init)
+        self.decoder.apply(training_utils.weight_init)
 
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
         #     print('attributes loaded')
-        #
         #     self.np_z_train = dct_attributes['np_z_train']
-
-    def weight_init(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_normal_(m.weight)
-            # nn.init.orthogonal_(m.weight)
-            m.bias.data.zero_()
 
     def encode(self, x):
         """Encode a batch of samples, and return posterior parameters for each point."""
         h1 = F.relu(self.encoder(x))
         return self.fc21(h1), self.fc22(h1)
-
 
     def reparameterize(self, mu, logvar):
         """Reparameterisation trick to sample z values.
@@ -235,13 +201,6 @@ class VAE(pl.LightningModule):
             p, q, _z = self.sample(mu, logvar)
 
         return self.decode(z), mu, logvar, p, q
-
-    # def _run_step(self, x):
-    #     x = self.encoder(x)
-    #     mu = self.fc_mu(x)
-    #     log_var = self.fc_var(x)
-    #     p, q, z = self.sample(mu, log_var)
-    #     return z, self.decoder(z), p, q
 
     def load_dataset(self):
         if (self.small_dataset):
@@ -319,24 +278,6 @@ class VAE(pl.LightningModule):
                         mce_batch[key_lf][key] = (new_val + val)/2
         return mce_batch
 
-    #taken from https://github.com/facebookresearch/mixup-cifar10
-    def mixup_data(self, x, y, alpha=1.0, use_cuda=True):
-        '''Returns mixed inputs, pairs of targets, and lambda'''
-        if alpha > 0:
-            lam = np.random.beta(alpha, alpha)
-        else:
-            lam = 1
-
-        batch_size = x.size()[0]
-        if use_cuda:
-            index = torch.randperm(batch_size).cuda()
-        else:
-            index = torch.randperm(batch_size)
-
-        mixed_x = lam * x + (1 - lam) * x[index, :]
-        y_a, y_b = y, y[index]
-        return mixed_x, y_a, y_b, lam
-
     def training_step(self, batch, batch_idx):
         mce_minibatch=None
 
@@ -371,7 +312,7 @@ class VAE(pl.LightningModule):
 
         if (self.current_epoch == self.sigmoid_annealing_threshold ):
             self.collect_z_values(ts_mu_chunk, ts_logvar_chunk)
-            # mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
+            # mce_minibatch = metric_utils.mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=3)
             # self.mce_batch_train = self.average_mce_batch(self.mce_batch_train, mce_minibatch)
 
         batch_mse, batch_kld = self.loss_function(recon_batch,
@@ -407,7 +348,6 @@ class VAE(pl.LightningModule):
                 'logvar': np.asarray(ts_logvar_chunk.tolist()).mean(axis=0),
                 'mu':np.asarray(ts_mu_chunk.tolist()).mean(axis=0)}
 
-
     def training_epoch_end(self, outputs):
         print("Saving MCE before KLD is applied...")
 
@@ -425,21 +365,16 @@ class VAE(pl.LightningModule):
             utils.save_dict_as_json(self.mce_batch_train, 'mce_results_wo_kld.json', self.experiment_path_train)
         return {}
 
-    # def validation_step(self, batch, batch_idx):
-    #     return 0
-
     def test_step(self, batch, batch_idx):
         print('test step')
 
         batch_mce =0
         test_loss = 0
 
-
-
         # self.eval()
         ts_batch_user_features = batch.view(-1, self.input_dimension)
         if (self.mixup):
-            ts_batch_user_features, y_a, y_b, lam = self.mixup_data(ts_batch_user_features, self.test_y_bin,
+            ts_batch_user_features, y_a, y_b, lam = training_utils.mixup_data(ts_batch_user_features, self.test_y_bin,
                                                                     alpha=1.0, use_cuda=False)
 
         recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)
@@ -469,7 +404,7 @@ class VAE(pl.LightningModule):
         batch_mse = batch_mse/len(ts_batch_user_features)
         batch_loss = batch_mse + kld
 
-        mce_minibatch = mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=1)
+        mce_minibatch = metric_utils.mce_batch(self, ts_batch_user_features, self.dct_index2itemId, k=1)
         self.mce_batch_test = self.average_mce_batch(self.mce_batch_test, mce_minibatch)
 
 
@@ -561,61 +496,31 @@ class VAE(pl.LightningModule):
     # Reconstruction + KL divergence losses summed over all elements and batch
     def loss_function(self, recon_x, x, mu, logvar, beta, unique_movies, p, q, new_kld_function=False, train=True):
         """ELBO assuming entries of x are binary variables, with closed form KLD."""
-        # zero_mask = generate_mask(x, recon_x, user_based_items_filter=True)
-        # one_mask = ~zero_mask
-        # x = x[one_mask]
-        # recon_x = recon_x[one_mask]
-        # MSE = F.binary_cross_entropy(recon_x, x.view(-1, unique_movies),reduction='sum')  # TODO: Is that correct? binary cross entropy - (Encoder)
-        #MSE = F.mse_loss(x, recon_x)# MSE is bad for this
         try:
             MSE = F.binary_cross_entropy(recon_x, x, reduction='sum')# MSE is bad for this
             # MSE = F.mse_loss(x, recon_x, reduction='sum')# MSE is bad for this
 
             if(np.isnan(np.sum(MSE.detach().numpy()))):
-                print('s')
+                print('MSE tensor is nan')
         except RuntimeError as e:
-            print('fo', e)
+            print('RuntimeError in loss function', e)
         if(new_kld_function):
+            # 1)
             kl = self.new_kld_func(p,q)
             self.kld_matrix_train = np.append(self.kld_matrix_train, np.asarray(kl.tolist()), axis=0)
             kld_mean = kl.mean(dim=0).mean()
         else:
-            # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-            # https://arxiv.org/abs/1312.6114
-
-            # p = norm.pdf(recon_x[:,0].tolist(), mu[:,0].tolist(), logvar[:,0].tolist())
-            # q = norm.pdf(x[:,0].tolist(), 0, 1)
-            # kl_medium = self.kl_divergence(p,q)
-
-            #1)
-            # kl = self.new_kld_func(p, q)
-            # self.kld_matrix = np.append(self.kld_matrix, np.asarray(kl.tolist()), axis=0)
-            # kld_mean = kl.mean()
-            # print('kld mean 1:', kld_mean)
-
+            # see Appendix B from VAE paper: Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014 --> https://arxiv.org/abs/1312.6114
             #2)
             kld_latent_factors = torch.exp(logvar) + mu ** 2 - 1. - logvar
             kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors, dim=1)) #0: sum over latent factors (columns), 1: sum over sample (rows)
-            # print('kld mean 2 dim 0:', kld_mean)
-            # kld_mean = -0.5 * torch.mean(torch.sum(-kld_latent_factors,
-            #                                        dim=1))  # 0: sum over latent factors (columns), 1: sum over sample (rows)
-            # print('kld mean 2 dim 1:', kld_mean)
 
             if(train):
                 self.kld_matrix_train = np.append(self.kld_matrix_train, np.asarray(kld_latent_factors.tolist()), axis=0)
             else:
                 self.kld_matrix_test = np.append(self.kld_matrix_test, np.asarray(kld_latent_factors.tolist()), axis=0)
 
-            #3)
-            #
-            # KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            # # Normalise by same number of elements as in reconstruction
-            # KLD /= x.view(-1, self.input_dimension).data.shape[0] * self.input_dimension
-
-            #4
-            # KLD_element = mu.pow(2).add_(logvar.exp()).mul_(-1).add_(1).add_(logvar)
-            # KLD = torch.sum(KLD_element).mul_(-0.5)
-        print('kld true: ', kld_mean)
+        print('KLD true: ', kld_mean)
         print('BCE: ', MSE)
         if(self.training):
             # kld_weight = self.sigmoid_annealing(beta,self.current_epoch)
@@ -626,8 +531,6 @@ class VAE(pl.LightningModule):
         # print('kld weight: {}'.format(kld_weight))
         self.KLD = kld_mean * kld_weight
 
-        # CE = -torch.mean(torch.sum(F.log_softmax(recon_x, 1) * x, -1))
-        # KLD = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
         return MSE,  self.KLD
 
 
@@ -719,245 +622,11 @@ class VAE(pl.LightningModule):
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
 
-
-
-def calculate_mean_of_ls_dict(ls_dict: list):
-    dct_sum = defaultdict(float)
-
-    for dict in ls_dict:
-        for key, val in dict.items():
-            dct_sum[key] += val
-    np_mean_vals = np.array(list(dct_sum.values())) / len(ls_dict)
-    dct_mean = list(zip(dct_sum.keys(), np_mean_vals))
-    # print(dct_mean)
-    return dct_mean
-
-def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
-    # ls_indezes = y_hat.values.index
-    #TODO Source read_csv out
-    # df_links = pd.read_csv('../data/movielens/small/links.csv')
-    # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
-
-
-    # if(synthetic == False):
-    ls_filter = ['languages','directors','writer', 'writers',
-                 'countries','runtimes', 'aspect_ratio', 'color_info',
-                 'sound_mix', 'plot_outline', 'title', 'animation_department',
-                 'casting_department', 'music_department','plot',
-                 'set_decorators', 'script_department',
-                 #TODO Add the attributes below once it works
-                 'cast_id', 'stars_id', 'producers', 'language_codes',
-                 'composers', 'cumulative_worldwide_gross','costume_designers',
-                 'kind', 'editors','country_codes', 'assistant_directors', 'cast']
-    df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
-    ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes] #ml = MovieLens
-
-
-    sr_imdb_ids = df_links[df_links["movieId"].isin(ls_ml_ids)]['imdbId'] #If I want to keep the
-    imdb_ids = sr_imdb_ids.array
-
-    # print('no of imdbIds:{}, no of indezes:{}'.format(len(imdb_ids), len(indezes)))
-    #TODO Fill df_movies with MovieLensId or download large links.csv
-    if(len(imdb_ids) < len(indezes)):
-        print('There were items recommended that have not been seen by any users in the dataset. Trained on 9725 movies but 193610 are available so df_links has only 9725 to pick from')
-    assert len(imdb_ids) == len(indezes)
-    #df_links.loc[df_links["movieId"] == indezes]
-    df_w_metadata = df_movies_curated.loc[df_movies_curated['imdbid'].isin(imdb_ids)]
-
-    return df_w_metadata
-
-def alter_z(ts_z, latent_factor_position, model, strategy):
-    tmp_z = ts_z.detach().clone()
-    if(strategy == 'max'):
-        print('--> Max strategy')
-        ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]/2 #32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
-    elif(strategy == 'min'):
-        print('--> Min strategy')
-        raise NotImplementedError("Min Strategy needs to be implemented")
-    elif(strategy == 'min_max'):
-        # print('--> Min- Max strategy')
-
-        try:
-            z_max_range = model.z_max_train[latent_factor_position]/2 #TODO Evtl. take z_max_train here
-            z_min_range = model.z_min_train[latent_factor_position]/2
-
-            if(np.abs(z_max_range) > np.abs(z_min_range)):
-                ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]/2
-            else:
-                ts_z[:, latent_factor_position] = model.z_min_train[latent_factor_position]/2
-        except IndexError:
-            print('stop')
-    # print('Change in Z:{}'.format(tmp_z-ts_z))
-    return ts_z
-
-#MCE is calculated for each category
-def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
-    dct_mce_mean = defaultdict()
-    # hold n neurons of hidden layer
-    # change 1 neuron
-    ls_y_hat, mu, logvar, p, q = model(ts_batch_features)
-    z = model.z
-    # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
-    # print('Z: {}'.format(z))
-    for latent_factor_position in range(model.no_latent_factors):
-
-        # print("Calculate MCEs for latent factor: {}".format(latent_factor_position))
-        ts_altered_z = alter_z(z.detach().clone(), latent_factor_position, model, strategy='min_max')#'max'
-        # print('ts_altered_z: {}'.format(ts_altered_z))
-
-        ls_y_hat_latent_changed, mu, logvar, p, q = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
-
-        ls_idx_y = (-ts_batch_features).argsort()
-        ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
-        ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
-        mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
-        ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
-
-
-        #Collect the index of the items that were seen
-        ls_non_zeroes = torch.nonzero(ls_idx_yhat, as_tuple=True)#ts_batch_features
-        tpl_users = ls_non_zeroes[0]
-        tpl_items = ls_non_zeroes[1]
-        dct_seen_items = defaultdict(list)
-        for idx in range(0,len(tpl_users)):
-            user_idx = int(tpl_users[idx])
-            item_idx = int(tpl_items[idx])
-            dct_seen_items[user_idx].append(item_idx)
-            # print(dct_seen_items)
-
-        #TODO Can be slow, find another way
-        # for user_idx, item_idx in ls_indizes_not_null:
-        #     mask_not_null[user_idx][item_idx] = True
-        # mask_not_null = ts_batch_features > 0 TODO This is an alternative to the for loop, test it
-
-
-        #Go through the list of list of the predicted batch
-        # for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
-        ls_dct_mce = []
-        #Iterate through batches of recommended items by user vector
-        for user_idx in range(len(ls_idx_yhat)): #tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
-            y_hat = ls_y_hat[user_idx]
-            y_hat_latent = ls_y_hat_latent_changed[user_idx]
-
-            if(k == 0):
-                k = 10#len(ls_seen_items) #no_of_seen_items  TODO Add k
-
-            y_hat_k_highest = (-y_hat).argsort()[:1] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
-            y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
-
-            # for
-            if(model.np_synthetic_data is None):
-                # synthetic = False
-                y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
-                y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
-            else:
-                y_hat_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_k_highest.tolist())]
-                y_hat_latent_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
-
-            # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            # single_mce = metric_utils.mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            # print('Calculate MCE for:\n{} \nand: \n{}'.format(y_hat_w_metadata, y_hat_latent_w_metadata))
-            single_mce = metric_utils.mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
-            ls_dct_mce.append(single_mce)
-
-            # print(single_mce)
-        dct_mce_mean[latent_factor_position] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
-    return dct_mce_mean
-
 def generate_distribution_df():
     dct_attribute_distribution = utils.compute_relative_frequency(
         pd.read_csv('../data/generated/syn.csv'))
     utils.save_dict_as_json(dct_attribute_distribution, 'syn_attribute_distribution.json')
 
-def sampling_inf_gain(model):
-    dct_mce_mean = defaultdict(lambda: defaultdict(lambda:dict))
-    # hold n neurons of hidden layer
-    # change 1 neuron
-
-    z = model.z
-    # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
-    print('Z: {}'.format(z))
-    for latent_factor_position in range(model.no_latent_factors):
-        print('Sampling strategy')
-
-        for i in range(0, 2):
-            ls_tensor_values= []
-            for sample in range(0,200):
-                z = [0 for i in range(0, model.no_latent_factors)]
-                # z = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-                ls_tensor_values.append(z)
-            np_tensor_value = np.asarray(ls_tensor_values).astype(float)
-            mu, sigma = 0, 0.2  # mean and standard deviation
-            s = np.random.normal(mu, sigma, 200)
-
-            if(i == 0):
-                np_tensor_value[:,latent_factor_position] = -1 + s
-            else:
-                np_tensor_value[:,latent_factor_position] = 1 + s
-
-
-            np_altered_z = np_tensor_value #np.asarray(ls_tensor_values)
-
-            ts_altered_z = torch.tensor(np_altered_z).float()
-            ls_y_hat_latent_changed = model.decode(ts_altered_z).detach().numpy()
-
-
-            ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
-
-            ls_dct_mce = []
-            for user_idx in range(len(ls_y_hat_latent_changed)):  # tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
-                y_hat_latent = ls_y_hat_latent_changed[user_idx]
-                y_hat_latent_k_highest = (-y_hat_latent).argsort()[:1]
-                y_hat_latent_w_metadata = model.df_movies.loc[
-                    model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
-                single_mce = metric_utils.single_information_gain(y_hat_latent_w_metadata,
-                                                                  model.dct_attribute_distribution)  # mce for n columns
-
-
-                ls_dct_mce.append(single_mce)
-
-
-            orientation = 'negative' if i == 0 else 'positive'
-            dct_mce_mean[latent_factor_position]
-            # dct_mce_mean[latent_factor_position][orientation]
-            dct_mce_mean[latent_factor_position][orientation] = dict(calculate_mean_of_ls_dict(ls_dct_mce))
-    return dct_mce_mean
-
-
-
-def default_to_regular(d):
-    if isinstance(d, defaultdict):
-        d = {k: default_to_regular(v) for k, v in d.items()}
-    return d
-
-def create_multi_mce(test_model):
-
-    dct_inf_gain = sampling_inf_gain(test_model)
-    dct_inf_gain = default_to_regular(dct_inf_gain)
-    ls_rows = []
-    ls_columns = []
-
-    for lf_key, orient_value in dct_inf_gain.items():
-
-        for att_key, dct_val in orient_value.items():
-            row = []
-            col = []
-            row.append(att_key)
-            col.append('spectrum')
-            for key, val in dct_val.items():
-                row.append(val)
-                col.append(key)
-
-            row.append(lf_key)
-            col.append('LF')
-            ls_columns.append(col)
-
-            ls_rows.append(row)
-
-    df_ig = pd.DataFrame(data=ls_rows, columns=ls_columns[0])
-    plot_utils.plot_ig_by_latent_factor(df_ig, 'Title', test_model.experiment_path_test, dct_param)
-    # df_mce_results = pd.read_json(
-    #     experiment_path + '/mce_results.json')  # ../data/generated/mce_results.json'
 
 #TODO If MC than change title of all plots from MCE to MC
 
@@ -1093,9 +762,9 @@ if __name__ == '__main__':
                         if(test_model.no_latent_factors<11):
                             latent_space_utils.traverse(test_model, experiment_path, dct_param)
                             if(test_model.np_synthetic_data is not None):
-                                create_multi_mce(test_model)
+                                metric_utils.create_multi_mce(test_model, dct_param)
 
-                        trainer.test(test_model) #The test loop will not be used until you call.
+                        trainer.test(test_model) #The test loop will not be used until you cadct_paramll.
                         print('Test time in seconds: {}'.format(time.time() - start))
                         # print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
                         # print(results)
@@ -1124,28 +793,7 @@ if __name__ == '__main__':
 
                         # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
 
-                        #TODO Bring back in
-
-                        # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
-                        # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
                         print('Test done')
-
     exit()
 
-#%%
-# plot_ae_img(batch_features,test_loader)
-# ls_dct_test =[{'a': 5},{'b': 10}]
-# ls_x=[]
-# ls_y=[]
-# for mce in ls_dct_test:
-#     for key, val in mce.items():
-#         ls_x.append(key)
-#         ls_y.append(val)
-#
-# import seaborn as sns
-# sns.barplot(x=ls_x, y=ls_y)
-
-# import plotly.express as px
-# df = px.data.iris()
-# print(df.head())
 

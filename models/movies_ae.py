@@ -42,28 +42,9 @@ from utils import training_utils, plot_utils, data_utils, utils, metric_utils, s
 # ToDo metrics:
 # Add https://towardsdatascience.com/evaluation-metrics-for-recommender-systems-df56c6611093
 
-# ToDo training:
-# Add test loss
-
 
 seed = 42
 torch.manual_seed(seed)
-
-
-##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
-##If set to False, the actual rating is taken
-##Shape: (n_user, n_items)
-
-def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter: bool):
-    # user_based_items_filter == True is what most people do
-    mask = None
-    if (user_based_items_filter):
-        mask = ts_batch_user_features == 0.  # filter out everything except what the user has seen , mask_zeros
-    else:
-        # TODO Mask filters also 1 out, that's bad
-        mask = ts_batch_user_features == tsls_yhat_user  # Obtain a mask for filtering out items that haven't been seen nor recommended, basically filter out what is 0:0 or 1:1
-    return mask
-
 
 class VAE(pl.LightningModule):
     def __init__(self, conf: dict, *args, **kwargs):
@@ -163,14 +144,8 @@ class VAE(pl.LightningModule):
         self.z_max_train = []
 
         # Initialize weights
-        self.encoder.apply(self.weight_init)
-        self.decoder.apply(self.weight_init)
-
-    def weight_init(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_normal_(m.weight)
-            # nn.init.orthogonal_(m.weight)
-            m.bias.data.zero_()
+        self.encoder.apply(training_utils.weight_init)
+        self.decoder.apply(training_utils.weight_init)
 
 
     def encode(self, x):
@@ -393,7 +368,7 @@ class VAE(pl.LightningModule):
         # Compute MSE
         # TODO MOre generic ...
 
-        # mask = generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter=loss_user_items_only)
+        # mask = training_utils.generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter=loss_user_items_only)
         # tsls_yhat_user_filtered = tsls_yhat_user[~mask]  # Predicted: Filter out unseen+unrecommended items
         # ts_user_features_seen = ts_batch_user_features[~mask]  # Ground Truth: Filter out unseen+unrecommended items
 
@@ -459,77 +434,6 @@ class VAE(pl.LightningModule):
         with open(path, 'wb') as handle:
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
-
-    def my_eval(expression):
-        try:
-            return ast.literal_eval(str(expression))
-        except SyntaxError:  # e.g. a ":" or "(", which is interpreted by eval as command
-            return [expression]
-        except ValueError:  # e.g. an entry is nan, in that case just return an empty string
-            return ''
-
-    def calculate_mean_of_ls_dict(ls_dict: list):
-        dct_sum = defaultdict(float)
-
-        for dict in ls_dict:
-            for key, val in dict.items():
-                dct_sum[key] += val
-        np_mean_vals = np.array(list(dct_sum.values())) / len(ls_dict)
-        dct_mean = list(zip(dct_sum.keys(), np_mean_vals))
-        # print(dct_mean)
-        return dct_mean
-
-    def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
-        # ls_indezes = y_hat.values.index
-        # TODO Source read_csv out
-        # df_links = pd.read_csv('../data/movielens/small/links.csv')
-        # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
-
-        # if(synthetic == False):
-        ls_filter = ['languages', 'directors', 'writer', 'writers',
-                     'countries', 'runtimes', 'aspect_ratio', 'color_info',
-                     'sound_mix', 'plot_outline', 'title', 'animation_department',
-                     'casting_department', 'music_department', 'plot',
-                     'set_decorators', 'script_department',
-                     # TODO Add the attributes below once it works
-                     'cast_id', 'stars_id', 'producers', 'language_codes',
-                     'composers', 'cumulative_worldwide_gross', 'costume_designers',
-                     'kind', 'editors', 'country_codes', 'assistant_directors', 'cast']
-        df_movies_curated = df_movies.copy().drop(ls_filter, axis=1)
-        ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes]  # ml = MovieLens
-
-        sr_imdb_ids = df_links[df_links["movieId"].isin(ls_ml_ids)]['imdbId']  # If I want to keep the
-        imdb_ids = sr_imdb_ids.array
-
-        # print('no of imdbIds:{}, no of indezes:{}'.format(len(imdb_ids), len(indezes)))
-        # TODO Fill df_movies with MovieLensId or download large links.csv
-        if (len(imdb_ids) < len(indezes)):
-            print(
-                'There were items recommended that have not been seen by any users in the dataset. Trained on 9725 movies but 193610 are available so df_links has only 9725 to pick from')
-        assert len(imdb_ids) == len(indezes)
-        # df_links.loc[df_links["movieId"] == indezes]
-        df_w_metadata = df_movies_curated.loc[df_movies_curated['imdbid'].isin(imdb_ids)]
-
-        return df_w_metadata
-
-    def alter_z(ts_z, latent_factor_position, model, strategy):
-        if (strategy == 'max'):
-            ts_z[:, latent_factor_position] = model.z_max_train[
-                latent_factor_position]  # 32x no_latent_factors, so by accesing [:,pos] I get the latent factor for the batch of 32 users
-        elif (strategy == 'min'):
-            raise NotImplementedError("Min Strategy needs to be implemented")
-        elif (strategy == 'min_max'):
-            try:
-                z_max_range = model.z_max_train[latent_factor_position]  # TODO Evtl. take z_max_train here
-                z_min_range = model.z_min_train[latent_factor_position]
-
-                if (np.abs(z_max_range) > np.abs(z_min_range)):
-                    ts_z[:, latent_factor_position] = model.z_max_train[latent_factor_position]
-                else:
-                    ts_z[:, latent_factor_position] = model.z_min_train[latent_factor_position]
-            except IndexError:
-                print('stop')
-        return ts_z
 
 
 def generate_distribution_df():

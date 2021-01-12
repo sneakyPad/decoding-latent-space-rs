@@ -10,8 +10,9 @@ import numpy as np
 from scipy.stats import entropy
 from utils import utils
 from sklearn.metrics import mean_squared_error
-from utils import settings
-
+from utils import settings, latent_space_utils, plot_utils
+import torch
+import pandas as pd
 
 def mce_relative_frequency(y_hat, y_hat_latent, dct_attribute_distribution):
     # dct_dist = pickle.load(movies_distribution)
@@ -328,6 +329,201 @@ def mce_shannon_inf(y_hat, y_hat_latent, dct_attribute_distribution):
                     print("Error Value:{}".format(value))
 
     return dct_mce
+
+def sampling_inf_gain(model):
+    dct_mce_mean = defaultdict(lambda: defaultdict(lambda:dict))
+    # hold n neurons of hidden layer
+    # change 1 neuron
+
+    z = model.z
+    # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
+    print('Z: {}'.format(z))
+    for latent_factor_position in range(model.no_latent_factors):
+        print('Sampling strategy')
+
+        for i in range(0, 2):
+            ls_tensor_values= []
+            for sample in range(0,200):
+                z = [0 for i in range(0, model.no_latent_factors)]
+                # z = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                ls_tensor_values.append(z)
+            np_tensor_value = np.asarray(ls_tensor_values).astype(float)
+            mu, sigma = 0, 0.2  # mean and standard deviation
+            s = np.random.normal(mu, sigma, 200)
+
+            if(i == 0):
+                np_tensor_value[:,latent_factor_position] = -1 + s
+            else:
+                np_tensor_value[:,latent_factor_position] = 1 + s
+
+
+            np_altered_z = np_tensor_value #np.asarray(ls_tensor_values)
+
+            ts_altered_z = torch.tensor(np_altered_z).float()
+            ls_y_hat_latent_changed = model.decode(ts_altered_z).detach().numpy()
+
+
+            ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+
+            ls_dct_mce = []
+            for user_idx in range(len(ls_y_hat_latent_changed)):  # tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
+                y_hat_latent = ls_y_hat_latent_changed[user_idx]
+                y_hat_latent_k_highest = (-y_hat_latent).argsort()[:1]
+                y_hat_latent_w_metadata = model.df_movies.loc[
+                    model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
+                single_mce = single_information_gain(y_hat_latent_w_metadata,
+                                                                  model.dct_attribute_distribution)  # mce for n columns
+
+
+                ls_dct_mce.append(single_mce)
+
+
+            orientation = 'negative' if i == 0 else 'positive'
+            dct_mce_mean[latent_factor_position]
+            # dct_mce_mean[latent_factor_position][orientation]
+            dct_mce_mean[latent_factor_position][orientation] = dict(utils.calculate_mean_of_ls_dict(ls_dct_mce))
+    return dct_mce_mean
+
+
+def match_metadata(indezes, df_links, df_movies, synthetic, dct_index2itemId):
+    # ls_indezes = y_hat.values.index
+    #TODO Source read_csv out
+    # df_links = pd.read_csv('../data/movielens/small/links.csv')
+    # df_movies = pd.read_csv('../data/generated/df_movies_cleaned3.csv')
+
+
+    # if(synthetic == False):
+    ls_filter = ['languages','directors','writer', 'writers',
+                 'countries','runtimes', 'aspect_ratio', 'color_info',
+                 'sound_mix', 'plot_outline', 'title', 'animation_department',
+                 'casting_department', 'music_department','plot',
+                 'set_decorators', 'script_department',
+                 #TODO Add the attributes below once it works
+                 'cast_id', 'stars_id', 'producers', 'language_codes',
+                 'composers', 'cumulative_worldwide_gross','costume_designers',
+                 'kind', 'editors','country_codes', 'assistant_directors', 'cast']
+    df_movies_curated = df_movies.copy().drop(ls_filter,axis=1)
+    ls_ml_ids = [dct_index2itemId[matrix_index] for matrix_index in indezes] #ml = MovieLens
+
+
+    sr_imdb_ids = df_links[df_links["movieId"].isin(ls_ml_ids)]['imdbId'] #If I want to keep the
+    imdb_ids = sr_imdb_ids.array
+
+    # print('no of imdbIds:{}, no of indezes:{}'.format(len(imdb_ids), len(indezes)))
+    #TODO Fill df_movies with MovieLensId or download large links.csv
+    if(len(imdb_ids) < len(indezes)):
+        print('There were items recommended that have not been seen by any users in the dataset. Trained on 9725 movies but 193610 are available so df_links has only 9725 to pick from')
+    assert len(imdb_ids) == len(indezes)
+    #df_links.loc[df_links["movieId"] == indezes]
+    df_w_metadata = df_movies_curated.loc[df_movies_curated['imdbid'].isin(imdb_ids)]
+
+    return df_w_metadata
+
+
+#MCE is calculated for each category
+def mce_batch(model, ts_batch_features, dct_index2itemId, k=0):
+    dct_mce_mean = defaultdict()
+    # hold n neurons of hidden layer
+    # change 1 neuron
+    ls_y_hat, mu, logvar, p, q = model(ts_batch_features)
+    z = model.z
+    # dct_attribute_distribution = utils.load_json_as_dict('attribute_distribution.json') #    load relative frequency distributioon from dictionary (pickle it)
+    # print('Z: {}'.format(z))
+    for latent_factor_position in range(model.no_latent_factors):
+
+        # print("Calculate MCEs for latent factor: {}".format(latent_factor_position))
+        ts_altered_z = latent_space_utils.alter_z(z.detach().clone(), latent_factor_position, model, strategy='min_max')#'max'
+        # print('ts_altered_z: {}'.format(ts_altered_z))
+
+        ls_y_hat_latent_changed, mu, logvar, p, q = model(ts_batch_features, z=ts_altered_z, mu=mu,logvar=logvar)
+
+        ls_idx_y = (-ts_batch_features).argsort()
+        ls_idx_yhat = (-ls_y_hat).argsort() # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+        ls_idx_yhat_latent = (-ls_y_hat_latent_changed).argsort()  # argsort returns indices of the given list in ascending order. For descending we invert the list, so each element is inverted
+        mask_not_null = np.zeros(ts_batch_features.shape, dtype=bool)
+        ls_indizes_not_null = torch.nonzero(ts_batch_features, as_tuple=False)
+
+
+        #Collect the index of the items that were seen
+        ls_non_zeroes = torch.nonzero(ls_idx_yhat, as_tuple=True)#ts_batch_features
+        tpl_users = ls_non_zeroes[0]
+        tpl_items = ls_non_zeroes[1]
+        dct_seen_items = defaultdict(list)
+        for idx in range(0,len(tpl_users)):
+            user_idx = int(tpl_users[idx])
+            item_idx = int(tpl_items[idx])
+            dct_seen_items[user_idx].append(item_idx)
+            # print(dct_seen_items)
+
+        #TODO Can be slow, find another way
+        # for user_idx, item_idx in ls_indizes_not_null:
+        #     mask_not_null[user_idx][item_idx] = True
+        # mask_not_null = ts_batch_features > 0 TODO This is an alternative to the for loop, test it
+
+
+        #Go through the list of list of the predicted batch
+        # for user_idx, ls_seen_items in dct_seen_items.items(): #ls_seen_items = ls_item_vec
+        ls_dct_mce = []
+        #Iterate through batches of recommended items by user vector
+        for user_idx in range(len(ls_idx_yhat)): #tqdm(range(len(ls_idx_yhat)), total = len(ls_idx_yhat)):
+            y_hat = ls_y_hat[user_idx]
+            y_hat_latent = ls_y_hat_latent_changed[user_idx]
+
+            if(k == 0):
+                k = 10#len(ls_seen_items) #no_of_seen_items  TODO Add k
+
+            y_hat_k_highest = (-y_hat).argsort()[:1] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+            y_hat_latent_k_highest = (-y_hat_latent).argsort()[:k] #Alternative: (-y_hat).sort().indices[:no_of_seen_items]
+
+            # for
+            if(model.np_synthetic_data is None):
+                # synthetic = False
+                y_hat_w_metadata = match_metadata(y_hat_k_highest.tolist(), model.df_links, model.df_movies)
+                y_hat_latent_w_metadata = match_metadata(y_hat_latent_k_highest.tolist(), model.df_links, model.df_movies)
+            else:
+                y_hat_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_k_highest.tolist())]
+                y_hat_latent_w_metadata = model.df_movies.loc[model.df_movies['id'].isin(y_hat_latent_k_highest.tolist())]
+
+            # single_mce = mce_relative_frequency(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # single_mce = metric_utils.mce_shannon_inf(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            # print('Calculate MCE for:\n{} \nand: \n{}'.format(y_hat_w_metadata, y_hat_latent_w_metadata))
+            single_mce = mce_information_gain(y_hat_w_metadata, y_hat_latent_w_metadata, model.dct_attribute_distribution) #mce for n columns
+            ls_dct_mce.append(single_mce)
+
+            # print(single_mce)
+        dct_mce_mean[latent_factor_position] = dict(utils.calculate_mean_of_ls_dict(ls_dct_mce))
+    return dct_mce_mean
+
+
+def create_multi_mce(test_model, dct_param):
+
+    dct_inf_gain = sampling_inf_gain(test_model)
+    dct_inf_gain = utils.default_to_regular(dct_inf_gain)
+    ls_rows = []
+    ls_columns = []
+
+    for lf_key, orient_value in dct_inf_gain.items():
+
+        for att_key, dct_val in orient_value.items():
+            row = []
+            col = []
+            row.append(att_key)
+            col.append('spectrum')
+            for key, val in dct_val.items():
+                row.append(val)
+                col.append(key)
+
+            row.append(lf_key)
+            col.append('LF')
+            ls_columns.append(col)
+
+            ls_rows.append(row)
+
+    df_ig = pd.DataFrame(data=ls_rows, columns=ls_columns[0])
+    plot_utils.plot_ig_by_latent_factor(df_ig, 'Title', test_model.experiment_path_test, dct_param)
+    # df_mce_results = pd.read_json(
+    #     experiment_path + '/mce_results.json')  # ../data/generated/mce_results.json'
+
 
 def calculate_metrics(y_actual, y_predicted):
     #RMSE

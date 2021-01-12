@@ -1,4 +1,7 @@
 import argparse
+import torch
+import numpy as np
+from torch import nn, optim
 
 def create_training_args():
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
@@ -51,3 +54,40 @@ def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_thre
     model_params['used_data'] = used_data
 
     return model_params
+
+##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
+##If set to False, the actual rating is taken
+##Shape: (n_user, n_items)
+def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filter: bool):
+    # user_based_items_filter == True is what most people do
+    mask = None
+    if (user_based_items_filter):
+        mask = ts_batch_user_features == 0.  # filter out everything except what the user has seen , mask_zeros
+    else:
+        # TODO Mask filters also 1 out, that's bad
+        mask = ts_batch_user_features == tsls_yhat_user  # Obtain a mask for filtering out items that haven't been seen nor recommended, basically filter out what is 0:0 or 1:1
+    return mask
+
+def weight_init(self, m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_normal_(m.weight)
+        # nn.init.orthogonal_(m.weight)
+        m.bias.data.zero_()
+
+ #taken from https://github.com/facebookresearch/mixup-cifar10
+    def mixup_data(self, x, y, alpha=1.0, use_cuda=True):
+        '''Returns mixed inputs, pairs of targets, and lambda'''
+        if alpha > 0:
+            lam = np.random.beta(alpha, alpha)
+        else:
+            lam = 1
+
+        batch_size = x.size()[0]
+        if use_cuda:
+            index = torch.randperm(batch_size).cuda()
+        else:
+            index = torch.randperm(batch_size)
+
+        mixed_x = lam * x + (1 - lam) * x[index, :]
+        y_a, y_b = y, y[index]
+        return mixed_x, y_a, y_b, lam
