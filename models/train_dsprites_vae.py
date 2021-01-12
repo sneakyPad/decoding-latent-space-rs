@@ -241,8 +241,8 @@ class VAE(pl.LightningModule):
 
         if(self.used_data == 'morpho'):
             # MORPHO_MNIST_FILE_TRAIN_Y = "/Users/d069735/workspace/Study/decoding-latent-space-rs/data/morpho-mnist/global/train-pert-idx1-ubyte.gz"
-            MORPHO_MNIST_FILE_TRAIN_Y = "/Users/d069735/workspace/Study/decoding-latent-space-rs/models/output_dir/pm-pert-idx1-ubyte.gz"
-            MORPHO_MNIST_FILE_TRAIN_X = "/Users/d069735/workspace/Study/decoding-latent-space-rs/models/output_dir/pm-images-idx3-ubyte.gz"
+            MORPHO_MNIST_FILE_TRAIN_Y = "/models/_output_dir/pm-pert-idx1-ubyte.gz"
+            MORPHO_MNIST_FILE_TRAIN_X = "/models/_output_dir/pm-images-idx3-ubyte.gz"
             self.train_dataset = morpho_io.load_idx(MORPHO_MNIST_FILE_TRAIN_X)[:59000]
             self.train_y = morpho_io.load_idx(MORPHO_MNIST_FILE_TRAIN_Y)[:59000]
         elif(self.used_data == 'dsprites'):
@@ -263,9 +263,9 @@ class VAE(pl.LightningModule):
 
         if(self.used_data == 'morpho'):
             # MORPHO_MNIST_FILE_TEST_Y = "/Users/d069735/workspace/Study/decoding-latent-space-rs/data/morpho-mnist/global/t10k-pert-idx1-ubyte.gz"
-            MORPHO_MNIST_FILE_TEST_Y = "/Users/d069735/workspace/Study/decoding-latent-space-rs/models/output_dir/pm-pert-idx1-ubyte.gz"
+            MORPHO_MNIST_FILE_TEST_Y = "/models/_output_dir/pm-pert-idx1-ubyte.gz"
             # MORPHO_MNIST_FILE_TEST_X = "/Users/d069735/workspace/Study/decoding-latent-space-rs/data/morpho-mnist/global/t10k-images-idx3-ubyte.gz"
-            MORPHO_MNIST_FILE_TEST_X = "/Users/d069735/workspace/Study/decoding-latent-space-rs/models/output_dir/pm-images-idx3-ubyte.gz"
+            MORPHO_MNIST_FILE_TEST_X = "/models/_output_dir/pm-images-idx3-ubyte.gz"
             self.test_dataset = morpho_io.load_idx(MORPHO_MNIST_FILE_TEST_X)[59000:60000]
             self.test_y = morpho_io.load_idx(MORPHO_MNIST_FILE_TEST_Y)[59000:60000]
         elif(self.used_data == 'dsprites'):
