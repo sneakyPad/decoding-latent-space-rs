@@ -19,7 +19,7 @@ import pickle
 import wandb
 import time
 import os
-from utils import training_utils, plot_utils, data_utils, utils, metric_utils, settings, latent_space_utils, \
+from utils import run_utils, plot_utils, data_utils, utils, metric_utils, settings, latent_space_utils, \
     disentangle_utils
 
 #ToDo EDA:
@@ -141,8 +141,8 @@ class VAE(pl.LightningModule):
         self.z_max_train = []
 
         # Initialize weights
-        self.encoder.apply(training_utils.weight_init)
-        self.decoder.apply(training_utils.weight_init)
+        self.encoder.apply(run_utils.weight_init)
+        self.decoder.apply(run_utils.weight_init)
 
         # if (kwargs.get('load_saved_attributes') == True):
         #     dct_attributes = self.load_attributes(kwargs.get('saved_attributes_path'))
@@ -374,8 +374,8 @@ class VAE(pl.LightningModule):
         # self.eval()
         ts_batch_user_features = batch.view(-1, self.input_dimension)
         if (self.mixup):
-            ts_batch_user_features, y_a, y_b, lam = training_utils.mixup_data(ts_batch_user_features, self.test_y_bin,
-                                                                    alpha=1.0, use_cuda=False)
+            ts_batch_user_features, y_a, y_b, lam = run_utils.mixup_data(ts_batch_user_features, self.test_y_bin,
+                                                                         alpha=1.0, use_cuda=False)
 
         recon_batch, ts_mu_chunk, ts_logvar_chunk, p, q = self.forward(ts_batch_user_features)
         ls_z = self.compute_z(ts_mu_chunk, ts_logvar_chunk)
@@ -622,10 +622,6 @@ class VAE(pl.LightningModule):
             pickle.dump(dct_attributes, handle)
         print('Attributes saved')
 
-def generate_distribution_df():
-    dct_attribute_distribution = utils.compute_relative_frequency(
-        pd.read_csv('../data/generated/syn.csv'))
-    utils.save_dict_as_json(dct_attribute_distribution, 'syn_attribute_distribution.json')
 
 
 #TODO If MC than change title of all plots from MCE to MC
@@ -633,7 +629,7 @@ def generate_distribution_df():
 if __name__ == '__main__':
     # Architecture Parameters
     torch.manual_seed(100)
-    args = training_utils.create_training_args()
+    args = run_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
     settings.init()
     #------------------------
@@ -697,12 +693,21 @@ if __name__ == '__main__':
 
                         experiment_path = utils.create_experiment_directory()
 
-                        model_params = training_utils.create_model_params(experiment_path, epoch, lf,
-                                                                          beta, int(epoch / 100),
-                                                                          expanded_user_item, mixup,
-                                                                          no_generative_factors, epoch,
-                                                                          is_hessian_penalty_activated, used_data,
-                                                                          small_movie_dataset)
+                        model_params = run_utils.create_model_params(experiment_path, epoch, lf,
+                                                                     beta, int(epoch / 100),
+                                                                     expanded_user_item, mixup,
+                                                                     no_generative_factors, epoch,
+                                                                     is_hessian_penalty_activated, used_data,
+                                                                     small_movie_dataset)
+                        if (synthetic_data):
+                            model_params['synthetic_data'], model_params['syn_y'] = data_utils.create_synthetic_data(
+                                no_generative_factors,
+                                experiment_path,
+                                expanded_user_item,
+                                continous_data,
+                                normalvariate,
+                                noise)
+                            data_utils.generate_distribution_df()
 
                         args.max_epochs = epoch
 
@@ -722,78 +727,16 @@ if __name__ == '__main__':
                         if(train):
                             print('<---------------------------------- VAE Training ---------------------------------->')
                             print("Running with the following configuration: \n{}".format(args))
-                            if (synthetic_data):
-                                model_params['synthetic_data'], model_params['syn_y'] = data_utils.create_synthetic_data(no_generative_factors,
-                                                                                                                         experiment_path,
-                                                                                                                         expanded_user_item,
-                                                                                                                         continous_data,
-                                                                                                                         normalvariate,
-                                                                                                                         noise)
-                                generate_distribution_df()
 
-                            model = VAE(model_params)
-                            wandb_logger.watch(model, log='gradients', log_freq=100)
+                            vae = VAE(model_params)
+                            wandb_logger.watch(vae, log='gradients', log_freq=100)
 
-                            # plot_utils.print_nn_summary(model, size =model.np_synthetic_data.shape[1])
+                            run_utils.train_model(vae, trainer, model_path, attribute_path)
 
-                            print('------ Start Training ------')
-                            trainer.fit(model)
-                            kld_matrix = model.KLD
-                            # print('% altering has provided information gain:{}'.format(
-                            #     int(settings.ig_m_hat_cnt) / (int(settings.ig_m_cnt) + int(settings.ig_m_hat_cnt))))
-                            # model.dis_KLD
-                            print('------ Saving model ------')
-                            trainer.save_checkpoint(model_path)
-                            model.save_attributes(attribute_path)
+                        dct_param = {'epochs': epoch, 'lf': lf, 'beta': beta, 'normal': normalvariate,
+                                     'continous': continous_data, 'hessian': is_hessian_penalty_activated,
+                                     'noise': noise}
 
-                        print('------ Load model -------')
-                        test_model = VAE.load_from_checkpoint(model_path)#, load_saved_attributes=True, saved_attributes_path='attributes.pickle'
-                        # test_model.test_size = model_params['test_size']
-                        test_model.load_attributes_and_files(attribute_path)
-                        test_model.experiment_path_test = experiment_path
-
-                        # print("show np_z_train mean:{}, min:{}, max:{}".format(z_mean_train, z_min_train, z_max_train ))
-                        print('------ Start Test ------')
-                        start = time.time()
-                        dct_param ={'epochs':epoch, 'lf':lf,'beta':beta, 'normal':normalvariate,
-                                    'continous':continous_data, 'hessian':is_hessian_penalty_activated, 'noise':noise}
-                        # plot_utils.plot_samples(test_model, experiment_path, dct_param)
-
-                        if(test_model.no_latent_factors<11):
-                            latent_space_utils.traverse(test_model, experiment_path, dct_param)
-                            if(test_model.np_synthetic_data is not None):
-                                metric_utils.create_multi_mce(test_model, dct_param)
-
-                        trainer.test(test_model) #The test loop will not be used until you cadct_paramll.
-                        print('Test time in seconds: {}'.format(time.time() - start))
-                        # print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
-                        # print(results)
-
-                        if(synthetic_data):
-                            disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
-
-                        plot_utils.plot_results(test_model,
-                                           test_model.experiment_path_test,
-                                           test_model.experiment_path_train,
-                                           dct_param )
-
-
-                        artifact = wandb.Artifact('Plots', type='result')
-                        artifact.add_dir(experiment_path)#, name='images'
-                        wandb_logger.experiment.log_artifact(artifact)
-
-
-                        working_directory = os.path.abspath(os.getcwd())
-                        absolute_path = working_directory + "/" + experiment_path + "images/"
-                        ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
-                        # wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
-
-                        dct_images = {img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for img_path in ls_path_images}
-                        wandb.log(dct_images)
-
-                        # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
-
-                        print('Test done')
+                        vae = run_utils.load_model(VAE, model_path, attribute_path, experiment_path)
+                        run_utils.test_model(vae, trainer, wandb_logger, dct_param, experiment_path, synthetic_data)
     exit()
-
-

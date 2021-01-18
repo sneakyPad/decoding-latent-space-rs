@@ -22,7 +22,7 @@ import pickle
 import wandb
 import time
 import os
-from utils import training_utils, plot_utils, data_utils, utils, metric_utils, settings, latent_space_utils, \
+from utils import run_utils, plot_utils, data_utils, utils, metric_utils, settings, latent_space_utils, \
     disentangle_utils
 
 # ToDo EDA:
@@ -144,8 +144,8 @@ class VAE(pl.LightningModule):
         self.z_max_train = []
 
         # Initialize weights
-        self.encoder.apply(training_utils.weight_init)
-        self.decoder.apply(training_utils.weight_init)
+        self.encoder.apply(run_utils.weight_init)
+        self.decoder.apply(run_utils.weight_init)
 
 
     def encode(self, x):
@@ -444,7 +444,7 @@ def generate_distribution_df():
 if __name__ == '__main__':
     #Architecture Parameters
     torch.manual_seed(100)
-    args = training_utils.create_training_args()
+    args = run_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # use gpu if available
     settings.init()
 
@@ -509,11 +509,11 @@ if __name__ == '__main__':
 
                         experiment_path = utils.create_experiment_directory()
 
-                        model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta,
-                                                                          int(epoch / 100), expanded_user_item,
-                                                                          mixup,
-                                                                          no_generative_factors, epoch,
-                                                                          is_hessian_penalty_activated, used_data)
+                        model_params = run_utils.create_model_params(experiment_path, epoch, lf, beta,
+                                                                     int(epoch / 100), expanded_user_item,
+                                                                     mixup,
+                                                                     no_generative_factors, epoch,
+                                                                     is_hessian_penalty_activated, used_data)
 
                         args.max_epochs = epoch
 
@@ -553,9 +553,6 @@ if __name__ == '__main__':
                             print('------ Start Training ------')
                             trainer.fit(model)
                             kld_matrix = model.KLD
-                            # print('% altering has provided information gain:{}'.format(
-                            #     int(settings.ig_m_hat_cnt) / (int(settings.ig_m_cnt) + int(settings.ig_m_hat_cnt))))
-                            # model.dis_KLD
                             print('------ Saving model ------')
                             trainer.save_checkpoint(model_path)
                             model.save_attributes(attribute_path)
@@ -606,32 +603,8 @@ if __name__ == '__main__':
                             img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for
                             img_path in ls_path_images}
                         wandb.log(dct_images)
-
-                        # wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
-
-                        # TODO Bring back in
-
-                        # neptune_logger.experiment.log_image('MCEs',"./results/images/mce_epochs_"+str(max_epochs)+".png")
-                        # neptune_logger.experiment.log_artifact("./results/images/mce_epochs_"+str(max_epochs)+".png")
                         print('Test done')
 
     exit()
-
-# %%
-# plot_ae_img(batch_features,test_loader)
-# ls_dct_test =[{'a': 5},{'b': 10}]
-# ls_x=[]
-# ls_y=[]
-# for mce in ls_dct_test:
-#     for key, val in mce.items():
-#         ls_x.append(key)
-#         ls_y.append(val)
-#
-# import seaborn as sns
-# sns.barplot(x=ls_x, y=ls_y)
-
-# import plotly.express as px
-# df = px.data.iris()
-# print(df.head())
 
 

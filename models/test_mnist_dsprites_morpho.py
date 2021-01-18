@@ -24,7 +24,7 @@ import wandb
 import time
 import os
 from utils.dsprites.datasets import get_dataloaders
-from utils import training_utils, plot_utils, utils, metric_utils, settings, disentangle_utils
+from utils import run_utils, plot_utils, utils, metric_utils, settings, disentangle_utils
 import utils.morphomnist.io as morpho_io
 #ToDo EDA:
 # - Long Tail graphics
@@ -767,7 +767,7 @@ def generate_distribution_df():
 
 if __name__ == '__main__':
     torch.manual_seed(100)
-    args = training_utils.create_training_args()
+    args = run_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
     settings.init()
 
@@ -815,8 +815,8 @@ if __name__ == '__main__':
 
                 experiment_path = utils.create_experiment_directory()
 
-                model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 4), expanded_user_item, mixup,
-                        no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
+                model_params = run_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 4), expanded_user_item, mixup,
+                                                             no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
 
                 args.max_epochs = epoch
 

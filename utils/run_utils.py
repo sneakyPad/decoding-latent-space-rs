@@ -2,6 +2,10 @@ import argparse
 import torch
 import numpy as np
 from torch import nn, optim
+from utils import latent_space_utils, metric_utils, plot_utils, disentangle_utils, data_utils
+import wandb
+import time
+import os
 
 def create_training_args():
     parser = argparse.ArgumentParser(description='VAE MNIST Example')
@@ -53,6 +57,8 @@ def create_model_params(experiment_path, epoch, lf, beta, sigmoid_annealing_thre
     model_params['is_hessian_penalty_activated'] = is_hessian_penalty_activated
     model_params['used_data'] = used_data
 
+
+
     return model_params
 
 ##This method creates a user-item matrix by transforming the seen items to 1 and adding unseen items as 0 if simplified_rating is set to True
@@ -68,7 +74,7 @@ def generate_mask(ts_batch_user_features, tsls_yhat_user, user_based_items_filte
         mask = ts_batch_user_features == tsls_yhat_user  # Obtain a mask for filtering out items that haven't been seen nor recommended, basically filter out what is 0:0 or 1:1
     return mask
 
-def weight_init(self, m):
+def weight_init(m):
     if isinstance(m, nn.Linear):
         nn.init.xavier_normal_(m.weight)
         # nn.init.orthogonal_(m.weight)
@@ -91,3 +97,64 @@ def weight_init(self, m):
         mixed_x = lam * x + (1 - lam) * x[index, :]
         y_a, y_b = y, y[index]
         return mixed_x, y_a, y_b, lam
+
+
+def load_model(VAE, model_path, attribute_path, experiment_path):
+    print('------ Load model -------')
+    vae = VAE.load_from_checkpoint(model_path)  # , load_saved_attributes=True, saved_attributes_path='attributes.pickle'
+    # test_model.test_size = model_params['test_size']
+    vae.load_attributes_and_files(attribute_path)
+    vae.experiment_path_test = experiment_path
+    return vae
+
+def train_model(vae, trainer, model_path, attribute_path):
+    # plot_utils.print_nn_summary(model, size =model.np_synthetic_data.shape[1])
+
+    print('------ Start Training ------')
+    trainer.fit(vae)
+    kld_matrix = vae.KLD
+    # print('% altering has provided information gain:{}'.format(int(settings.ig_m_hat_cnt) / (int(settings.ig_m_cnt) + int(settings.ig_m_hat_cnt))))
+
+    print('------ Saving model ------')
+    trainer.save_checkpoint(model_path)
+    vae.save_attributes(attribute_path)
+
+def test_model(test_model, trainer, wandb_logger, dct_param, experiment_path, synthetic_data):
+    print('------ Start Test ------')
+
+    start = time.time()
+    # plot_utils.plot_samples(test_model, experiment_path, dct_param)
+
+    if (test_model.no_latent_factors < 11):
+        latent_space_utils.traverse(test_model, experiment_path, dct_param)
+        if (test_model.np_synthetic_data is not None):
+            metric_utils.create_multi_mce(test_model, dct_param)
+
+    trainer.test(test_model)  # The test loop will not be used until you cadct_paramll.
+    print('Test time in seconds: {}'.format(time.time() - start))
+    # print('% altering has provided information gain:{}'.format( int(settings.ig_m_hat_cnt)/(int(settings.ig_m_cnt)+int(settings.ig_m_hat_cnt) )))
+    # print(results)
+
+    if (synthetic_data):
+        disentangle_utils.run_disentanglement_eval(test_model, experiment_path, dct_param)
+
+    plot_utils.plot_results(test_model,
+                            test_model.experiment_path_test,
+                            test_model.experiment_path_train,
+                            dct_param)
+
+    artifact = wandb.Artifact('Plots', type='result')
+    artifact.add_dir(experiment_path)  # , name='images'
+    wandb_logger.experiment.log_artifact(artifact)
+
+    working_directory = os.path.abspath(os.getcwd())
+    absolute_path = working_directory + "/" + experiment_path + "images/"
+    ls_path_images = [absolute_path + file_name for file_name in os.listdir(absolute_path)]
+    # wandb.log({"images": [wandb.Image(plt.imread(img_path)) for img_path in ls_path_images]})
+
+    dct_images = {img_path.split(sep='_')[2].split(sep='/')[-1]: wandb.Image(plt.imread(img_path)) for img_path in
+                  ls_path_images}
+    wandb.log(dct_images)
+    #wandb.log({"example_1": wandb.Image(...), "example_2",: wandb.Image(...)})
+
+    print('Test done')

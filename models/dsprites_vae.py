@@ -23,7 +23,7 @@ import wandb
 import time
 import os
 from utils.dsprites.datasets import get_dataloaders
-from utils import training_utils, data_utils, utils, metric_utils, settings, disentangle_utils, latent_space_utils  # ,morpho_utils
+from utils import run_utils, data_utils, utils, metric_utils, settings, disentangle_utils, latent_space_utils  # ,morpho_utils
 import utils.morphomnist.io as morpho_io
 #ToDo EDA:
 # - Long Tail graphics
@@ -150,8 +150,8 @@ class VAE(pl.LightningModule):
         self.z_max_train = []
 
         # Initialize weights
-        self.encoder.apply(training_utils.weight_init)
-        self.decoder.apply(training_utils.weight_init)
+        self.encoder.apply(run_utils.weight_init)
+        self.decoder.apply(run_utils.weight_init)
 
         self.batch_size =512
         # np_user_item, ls_y = sklearn.utils.shuffle(np_user_item, ls_y)
@@ -601,7 +601,7 @@ def generate_distribution_df():
 
 if __name__ == '__main__':
     torch.manual_seed(100)
-    args = training_utils.create_training_args()
+    args = run_utils.create_training_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #  use gpu if available
     settings.init()
 
@@ -649,8 +649,8 @@ if __name__ == '__main__':
 
                 experiment_path = utils.create_experiment_directory()
 
-                model_params = training_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 4), expanded_user_item, mixup,
-                        no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
+                model_params = run_utils.create_model_params(experiment_path, epoch, lf, beta, int(epoch / 4), expanded_user_item, mixup,
+                                                             no_generative_factors, epoch, is_hessian_penalty_activated, used_data)
 
                 args.max_epochs = epoch
 

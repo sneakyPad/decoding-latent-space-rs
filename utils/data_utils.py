@@ -16,7 +16,13 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import os
 import numpy as np
-from utils import plot_utils
+from utils import plot_utils, utils
+
+def generate_distribution_df():
+    dct_attribute_distribution = utils.compute_relative_frequency(
+        pd.read_csv('../data/generated/syn.csv'))
+    utils.save_dict_as_json(dct_attribute_distribution, 'syn_attribute_distribution.json')
+
 
 def create_synthetic_data_nd(no_generative_factors, experiment_path):
     no_samples = 20
