@@ -1,7 +1,7 @@
 torch==1.5.1
 torchvision==0.6.1
 matplotlib==3.2.2
-numpy==1.19.0
+numpy==1.22.0
 pandas==0.25.3
 recmetrics==0.0.12
 sklearn==0.0
